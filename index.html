@@ -17,7 +17,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
 
-    <script src="https://web.sdk.qcloud.com/js/sdk/1.3.0/cloudbase.full.js"></script>
+    <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.10.0/cloudbase.full.js"></script>
     <script src="https://unpkg.com/cos-js-sdk-v5/dist/cos-js-sdk-v5.min.js"></script>
 
     <style>
@@ -311,7 +311,9 @@
         
         // --- 7.1 初始化腾讯云 CloudBase ---
         const tcb = cloudbase.init(TCB_CONFIG);
-        const auth = tcb.auth();
+        
+        // 【已修改】增加 persistence: 'local' 来持久化登录状态
+        const auth = tcb.auth({ persistence: 'local' });
         const db = tcb.database();
         const _ = db.command;
 
@@ -422,10 +424,11 @@
 
         async function handleLogout() {
             await auth.signOut();
-            appState.user = null;
-            appState.folders = [];
-            appState.articles = [];
-            appState.currentArticle = null;
+            // 清理所有状态
+            Object.assign(appState, {
+                user: null, folders: [], articles: [], currentArticle: null,
+                editingArticle: { id: null, lastKnownVersion: null },
+            });
             showAuthView();
         }
 
@@ -441,6 +444,7 @@
 
         // --- 9.1 数据获取 ---
         async function fetchAllData() {
+            if (!appState.user) return;
             try {
                 const [foldersRes, articlesRes] = await Promise.all([
                     db.collection('folders').where({ _openid: appState.user.uid }).get(),
@@ -485,7 +489,7 @@
             try {
                 // NoSQL 不支持级联删除，需要应用层实现
                 // 1. 删除文件夹下的所有文章
-                await db.collection('articles').where({ folder_id: folderId }).remove();
+                await db.collection('articles').where({ folder_id: folderId, _openid: appState.user.uid }).remove();
                 
                 // 2. 删除文件夹本身
                 await db.collection('folders').doc(folderId).remove();
@@ -533,7 +537,7 @@
                  if (appState.editingArticle.lastKnownVersion && serverTimestamp > appState.editingArticle.lastKnownVersion) {
                     navigator.clipboard.writeText(JSON.stringify(quill.getContents()));
                     showToast('内容冲突！云端版本较新，您的草稿已复制到剪贴板。', 'warning', 10000);
-                    loadArticleContent(latestArticle); // 加载最新内容
+                    loadRichTextContent(latestArticle); // 加载最新内容
                     return;
                  }
 
@@ -546,6 +550,8 @@
                 appState.isEditorDirty = false;
                 deleteLocalDraft(articleId);
                 await fetchAllData();
+                // 手动刷新当前文章的状态，防止再次触发冲突检测
+                appState.editingArticle.lastKnownVersion = Date.now();
                 document.querySelector(`[data-id='${articleId}'] .draft-indicator`)?.classList.add('hidden');
                 document.querySelector(`#save-btn`)?.classList.remove('bg-green-500', 'hover:bg-green-600');
             } catch (e) {
@@ -575,6 +581,7 @@
                 showToast('重命名成功', 'success');
                 if (appState.currentArticle && appState.currentArticle._id === articleId) {
                     DOMElements.articleTitleHeader.textContent = newTitle;
+                    appState.currentArticle.title = newTitle;
                 }
                 await fetchAllData();
             } catch (e) {
@@ -622,7 +629,7 @@
             showToast('正在上传PDF...', 'info');
             try {
                 const url = await uploadFileToCOS(file, 'pdfs');
-                await createArticle(file.name, null, 'pdf', url);
+                await createArticle(file.name.replace('.pdf', ''), null, 'pdf', url);
             } catch (error) {
                 showToast('PDF上传失败', 'error');
             }
@@ -669,7 +676,7 @@
                             ]);
 
                             showToast('正在导入数据...', 'info');
-                            // 2. 导入数据
+                            // 2. 导入数据 (这里需要注意，一次性 add 多个文档可能会有数量限制，但对于个人备份通常够用)
                             // 导入文件夹
                             if (data.folders.length > 0) {
                                 await db.collection('folders').add(data.folders.map(f => ({ name: f.name, created_at: new Date(f.created_at) })));
@@ -687,6 +694,7 @@
                             }
 
                             showToast('数据导入成功！', 'success');
+                            showWelcomeView();
                             await fetchAllData();
                         }
                     );
@@ -755,7 +763,7 @@
                 const articlesInFolder = appState.articles.filter(a => a.folder_id === folder._id);
                 const folderEl = document.createElement('div');
                 folderEl.innerHTML = `
-                    <details class="folder-item" data-id="${folder._id}">
+                    <details class="folder-item" data-id="${folder._id}" open>
                         <summary class="flex items-center p-2 rounded hover:bg-gray-700 cursor-pointer text-sm">
                             <i data-feather="folder" class="w-4 h-4 mr-2"></i>
                             <span class="font-semibold flex-1 truncate">${folder.name}</span>
@@ -848,7 +856,14 @@
                 appState.isEditorDirty = true;
                 DOMElements.saveBtn.classList.add('bg-green-500', 'hover:bg-green-600');
             } else {
-                quill.setContents(article.content ? JSON.parse(article.content) : '');
+                 try {
+                    // Quill 的内容可能是 JSON 字符串，也可能是 Delta 对象，需要做兼容
+                    const contentToLoad = typeof article.content === 'string' ? JSON.parse(article.content || '{}') : article.content;
+                    quill.setContents(contentToLoad);
+                } catch(e) {
+                    console.error("Error parsing article content:", e);
+                    quill.setText(''); // 内容解析失败则清空
+                }
                 appState.isEditorDirty = false;
                 DOMElements.saveBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
             }
@@ -867,6 +882,9 @@
                 appState.pdfDoc = pdf;
                 appState.pdfPageNum = 1;
                 renderPdfPage(appState.pdfPageNum);
+            }, (reason) => {
+                console.error("PDF loading error:", reason);
+                showToast("PDF文件加载失败", "error");
             });
         }
         
@@ -1072,9 +1090,9 @@
         
         // --- 11.3 单文章导出 ---
         function exportArticleAsTxt() {
-            if (!appState.currentArticle) return;
+            if (!appState.currentArticle || appState.currentArticle.type !== 'text') return;
             const text = quill.getText();
-            const blob = new Blob([text], { type: 'text/plain' });
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -1084,7 +1102,7 @@
         }
 
         function exportArticleAsPdf() {
-            if (!appState.currentArticle) return;
+            if (!appState.currentArticle || appState.currentArticle.type !== 'text') return;
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             const editor = document.querySelector('.ql-editor');
@@ -1146,10 +1164,12 @@
             DOMElements.importPdfWrapper.addEventListener('click', () => DOMElements.importPdfInput.click());
             DOMElements.importPdfInput.addEventListener('change', (e) => {
                 if (e.target.files.length > 0) handlePDFImport(e.target.files[0]);
+                e.target.value = ''; // 清空选择，以便再次选择同名文件
             });
             DOMElements.importBackupWrapper.addEventListener('click', () => DOMElements.importBackupInput.click());
             DOMElements.importBackupInput.addEventListener('change', e => {
                  if (e.target.files.length > 0) handleImportBackup(e.target.files[0]);
+                 e.target.value = '';
             });
             DOMElements.exportBackupBtn.addEventListener('click', handleExportBackup);
             
@@ -1172,7 +1192,7 @@
                 renderPdfPage(appState.pdfPageNum);
             });
              DOMElements.pdfNext.addEventListener('click', () => {
-                if (appState.pdfPageNum >= appState.pdfDoc.numPages) return;
+                if (appState.pdfDoc && appState.pdfPageNum >= appState.pdfDoc.numPages) return;
                 appState.pdfPageNum++;
                 renderPdfPage(appState.pdfPageNum);
             });
@@ -1183,7 +1203,7 @@
             DOMElements.confirmCancelBtn.addEventListener('click', hideAllModals);
             DOMElements.modalOverlay.addEventListener('click', hideAllModals);
             document.addEventListener('click', (e) => {
-                if (!e.target.closest('#context-menu')) {
+                if (!DOMElements.contextMenu.contains(e.target)) {
                     DOMElements.contextMenu.classList.add('hidden');
                 }
             });
