@@ -311,8 +311,6 @@
         
         // --- 7.1 初始化腾讯云 CloudBase ---
         const tcb = cloudbase.init(TCB_CONFIG);
-        
-        // 【已修改】增加 persistence: 'local' 来持久化登录状态
         const auth = tcb.auth({ persistence: 'local' });
         const db = tcb.database();
         const _ = db.command;
@@ -390,7 +388,8 @@
                     showAuthView();
                 }
             } catch (e) {
-                console.error("Auth state check failed:", e);
+                // 【已修改】改进错误日志，方便调试
+                console.error("Auth state check failed:", e.message, e);
                 showAuthView();
             }
         }
@@ -402,7 +401,8 @@
                 appState.user = { uid: loginState.user.uid, email: loginState.user.email };
                 await initializeMainApp();
             } catch (e) {
-                showToast('登录失败，请检查邮箱和密码', 'error');
+                // 【已修改】显示更详细的错误信息
+                showToast(`登录失败: ${e.message}`, 'error');
                 console.error(e);
             }
         }
@@ -413,11 +413,8 @@
                 showToast('注册成功，请登录', 'success');
                 toggleAuthForms('login');
             } catch (e) {
-                if (e.code === 'auth/email-already-in-use') {
-                    showToast('该邮箱已被注册', 'error');
-                } else {
-                    showToast('注册失败', 'error');
-                }
+                // 【已修改】显示更详细的错误信息
+                showToast(`注册失败: ${e.message}`, 'error');
                 console.error(e);
             }
         }
@@ -858,7 +855,7 @@
             } else {
                  try {
                     // Quill 的内容可能是 JSON 字符串，也可能是 Delta 对象，需要做兼容
-                    const contentToLoad = typeof article.content === 'string' ? JSON.parse(article.content || '{}') : article.content;
+                    const contentToLoad = typeof article.content === 'string' && article.content ? JSON.parse(article.content) : (article.content || '');
                     quill.setContents(contentToLoad);
                 } catch(e) {
                     console.error("Error parsing article content:", e);
