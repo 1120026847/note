@@ -311,7 +311,8 @@
         
         // --- 7.1 初始化腾讯云 CloudBase ---
         const tcb = cloudbase.init(TCB_CONFIG);
-        const auth = tcb.auth({ persistence: 'local' });
+        // 【关键修复】将认证实例变量命名为 cbAuth，以避免与浏览器因 DOM 元素 id/name="auth" 而产生的全局变量 window.auth 冲突。
+        const cbAuth = tcb.auth({ persistence: 'local' });
         const db = tcb.database();
         const _ = db.command;
 
@@ -376,11 +377,11 @@
 
 
         // =================================================================
-        // VIII. 用户认证 (Authentication)
+        // VIII. 用户认证 (Authentication) - 使用 cbAuth 变量
         // =================================================================
         async function checkAuthState() {
             try {
-                const loginState = await auth.getLoginState();
+                const loginState = await cbAuth.getLoginState();
                 if (loginState) {
                     appState.user = { uid: loginState.user.uid, email: loginState.user.email };
                     await initializeMainApp();
@@ -388,20 +389,19 @@
                     showAuthView();
                 }
             } catch (e) {
-                // 【已修改】改进错误日志，方便调试
-                console.error("Auth state check failed:", e.message, e);
+                // 【已修改】将此视为正常情况（未登录），使用 console.warn
+                console.warn('Auth state check failed (this is normal if not logged in):', e.message);
                 showAuthView();
             }
         }
 
         async function handleLogin(email, password) {
             try {
-                await auth.signInWithEmailAndPassword(email, password);
-                const loginState = await auth.getLoginState();
+                await cbAuth.signInWithEmailAndPassword(email, password);
+                const loginState = await cbAuth.getLoginState();
                 appState.user = { uid: loginState.user.uid, email: loginState.user.email };
                 await initializeMainApp();
             } catch (e) {
-                // 【已修改】显示更详细的错误信息
                 showToast(`登录失败: ${e.message}`, 'error');
                 console.error(e);
             }
@@ -409,18 +409,17 @@
 
         async function handleRegister(email, password) {
             try {
-                await auth.signUpWithEmailAndPassword(email, password);
+                await cbAuth.signUpWithEmailAndPassword(email, password);
                 showToast('注册成功，请登录', 'success');
                 toggleAuthForms('login');
             } catch (e) {
-                // 【已修改】显示更详细的错误信息
                 showToast(`注册失败: ${e.message}`, 'error');
                 console.error(e);
             }
         }
 
         async function handleLogout() {
-            await auth.signOut();
+            await cbAuth.signOut();
             // 清理所有状态
             Object.assign(appState, {
                 user: null, folders: [], articles: [], currentArticle: null,
