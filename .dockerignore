@@ -1,7 +1,7 @@
-.git
+git
 .gitignore
 Dockerfile
-default.conf.template
+# ⚠️ 不要忽略 default.conf.template
 node_modules
 dist
 build
