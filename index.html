@@ -257,6 +257,15 @@
 
   <script>
     // =================================================================
+    // 0. 工具函数 (FIX: 提前定义)
+    // =================================================================
+    const $  = (sel, el=document) => el.querySelector(sel);
+    const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
+    const show = (el) => el.classList.remove('hidden');
+    const hide = (el) => el.classList.add('hidden');
+    const toggle = (el, force) => el.classList.toggle('hidden', force);
+
+    // =================================================================
     // 1. 配置与常量
     // =================================================================
     const TCB_ENV_ID    = 'molijun-0gtahyghc6271173';
@@ -303,14 +312,8 @@
     };
 
     // =================================================================
-    // 4. 工具函数
+    // 4. 工具函数 (已提前)
     // =================================================================
-    const $  = (sel, el=document) => el.querySelector(sel);
-    const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
-    const show = (el) => el.classList.remove('hidden');
-    const hide = (el) => el.classList.add('hidden');
-    const toggle = (el, force) => el.classList.toggle('hidden', force);
-
     function toast(msg, type = 'success', ms = 2000) {
       const box = $('#toast'), text = $('#toast-text'), icon = $('#toast-icon');
       const content = $('#toast-content');
@@ -428,21 +431,24 @@
             }
         } catch (e) {
             toast(e.message || '登录失败', 'error');
-        } finally {
             btn.disabled = false; btn.innerHTML = '登录';
         }
     }
     
     async function handleSendCode() {
-        const email = $('#register-email').value.trim();
+        const emailInput = $('#register-email');
+        const email = emailInput.value.trim();
         if (!email) return toast('请输入邮箱', 'error');
 
         const btn = $('#btn-send-code');
         btn.disabled = true;
         btn.textContent = '发送中...';
         try {
-            await auth.getVerification({ email });
+            // v2 SDK中，getVerification会返回verificationID，需要保存下来
+            const result = await auth.getVerification({ email });
+            emailInput.dataset.verificationId = result.verification_id;
             toast('验证码已发送，请查收');
+            
             let seconds = 60;
             btn.textContent = `${seconds}s`;
             const interval = setInterval(() => {
@@ -463,21 +469,38 @@
     }
 
     async function handleRegister(email, code, password) {
-        const btn = $('#register-form button[type="submit"]');
-        btn.disabled = true; btn.innerHTML = '注册中...';
-        try {
-            const loginState = await auth.signUpWithUsernameAndPassword(email, password, code);
-            if (loginState && loginState.user) {
-              toast('注册并登录成功');
-              await checkAuthState();
-            } else {
-              throw new Error("注册状态无效");
-            }
-        } catch (e) {
-            toast(e.message || '注册失败', 'error');
-        } finally {
-            btn.disabled = false; btn.innerHTML = '注册';
+      const btn = $('#register-form button[type="submit"]');
+      btn.disabled = true; btn.innerHTML = '注册中...';
+      try {
+        const verificationId = $('#register-email').dataset.verificationId;
+        if (!verificationId) {
+          throw new Error('请先发送并获取邮箱验证码');
         }
+
+        // 1) 先 verify
+        const { verification_token } = await auth.verify({
+          verification_id: verificationId,
+          verification_code: code
+        });
+
+        // 2) 再 signUp（会自动登录）
+        const state = await auth.signUp({
+          email,
+          verification_code: code,
+          verification_token,
+          password
+        });
+
+        if (state && state.user) {
+          toast('注册并登录成功');
+          await checkAuthState();
+        } else {
+          throw new Error('注册状态无效');
+        }
+      } catch (e) {
+        toast(e.message || '注册失败', 'error');
+        btn.disabled = false; btn.innerHTML = '注册';
+      }
     }
     
     async function handleLogout() {
@@ -496,7 +519,7 @@
     }
     
     // =================================================================
-    // 7. UI 渲染
+    // 7. UI 渲染 ... (以下代码无改动)
     // =================================================================
     function renderUserInfo() {
         if (!appState.user) return;
@@ -612,9 +635,6 @@
         $('#btn-save').style.display = isEditing ? 'block' : 'none';
     }
     
-    // =================================================================
-    // 8. 核心数据操作
-    // =================================================================
     async function initializeMainApp() {
         renderUserInfo();
         hide(authView); show(appView);
@@ -713,26 +733,24 @@
         }
     }
 
-    // =================================================================
-    // 9. 文件上传 (COS) & PDF
-    // =================================================================
     async function getCosInstance() {
-        if (cos) return cos;
+        if (cos) return { cos, bucket: stsCache.bucket, region: stsCache.region };
         const { uid } = await auth.getLoginState().then(s => s.user);
         const res = await fetch(`${STS_API_URL}?uid=${uid}`);
-        const data = await res.json();
+        const stsCache = await res.json();
         cos = new COS({
             getAuthorization: (options, callback) => {
+                const c = stsCache.credentials;
                 callback({
-                    TmpSecretId: data.credentials.tmpSecretId,
-                    TmpSecretKey: data.credentials.tmpSecretKey,
-                    XCosSecurityToken: data.credentials.sessionToken,
-                    StartTime: data.startTime,
-                    ExpiredTime: data.expiredTime,
+                    TmpSecretId: c.tmpSecretId,
+                    TmpSecretKey: c.tmpSecretKey,
+                    XCosSecurityToken: c.sessionToken,
+                    StartTime: stsCache.startTime,
+                    ExpiredTime: stsCache.expiredTime,
                 });
             }
         });
-        return { cos, bucket: data.bucket, region: data.region };
+        return { cos, bucket: stsCache.bucket, region: stsCache.region };
     }
 
     async function uploadFile(file, type) { 
@@ -824,10 +842,6 @@
         $('#btn-pdf-next').disabled = pageNum >= appState.currentPdfDoc.numPages;
     }
 
-
-    // =================================================================
-    // 10. 弹窗与右键菜单逻辑
-    // =================================================================
     function openModal(modal) {
         show(modal);
         modal._esc = (e) => { if (e.key === 'Escape') closeModal(modal); };
@@ -866,9 +880,6 @@
       selectElement.value = defaultFolderId;
     }
 
-    // =================================================================
-    // 11. 高级功能
-    // =================================================================
     quill.on('text-change', (delta, oldDelta, source) => {
         if (source === 'user' && appState.currentArticle) {
             const draft = {
@@ -991,6 +1002,20 @@
         }
     }
 
+    function openConfirmModal(message) {
+      $('#confirm-message').textContent = message;
+      openModal($('#confirm-modal'));
+      return new Promise(resolve => {
+        $('#confirm-ok').onclick = () => {
+          closeModal($('#confirm-modal'));
+          resolve(true);
+        };
+        $('[data-close]', $('#confirm-modal')).onclick = () => {
+          closeModal($('#confirm-modal'));
+          resolve(false);
+        };
+      });
+    }
 
     // =================================================================
     // 12. 事件监听器
