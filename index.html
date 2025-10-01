@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>极简笔记 (Tencent CloudBase)</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
+
+  <style>
+    .ctxmenu { min-width: 160px; }
+    .scroll-smooth::-webkit-scrollbar{ width:8px; height:8px }
+    .scroll-smooth::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:9999px }
+    .scroll-smooth::-webkit-scrollbar-thumb:hover{ background:#94a3b8 }
+    .ql-editor { min-height: 200px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+  <section id="auth-view" class="min-h-screen grid place-items-center p-6">
+    <div class="w-full max-w-md bg-white shadow-xl rounded-2xl p-8 space-y-6">
+      <div class="flex items-center justify-center gap-3">
+        <i data-feather="book-open"></i>
+        <h1 class="text-2xl font-semibold">极简笔记</h1>
+      </div>
+
+      <div class="flex gap-2 mt-2">
+        <button id="tab-login" class="flex-1 py-2 rounded-lg bg-slate-900 text-white">登录</button>
+        <button id="tab-register" class="flex-1 py-2 rounded-lg bg-slate-100">注册</button>
+      </div>
+
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="text-sm">邮箱</label>
+          <input id="login-email" type="email" required class="mt-1 w-full rounded-lg border p-2" placeholder="you@example.com" />
+        </div>
+        <div>
+          <label class="text-sm">密码</label>
+          <input id="login-password" type="password" required class="mt-1 w-full rounded-lg border p-2" placeholder="8~32位" />
+        </div>
+        <button type="submit" class="w-full py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-2">登录</button>
+      </form>
+
+      <form id="register-form" class="space-y-4 hidden">
+        <div>
+          <label class="text-sm">邮箱</label>
+          <input id="register-email" type="email" required class="mt-1 w-full rounded-lg border p-2" placeholder="you@example.com" />
+        </div>
+        <div class="flex gap-2">
+            <input id="register-code" type="text" class="flex-1 w-full rounded-lg border p-2" placeholder="邮箱验证码" required />
+            <button type="button" id="btn-send-code" class="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm whitespace-nowrap">发送验证码</button>
+        </div>
+        <div>
+          <label class="text-sm">密码</label>
+          <input id="register-password" type="password" required class="mt-1 w-full rounded-lg border p-2" placeholder="8~32位" />
+        </div>
+        <button type="submit" class="w-full py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2">注册</button>
+      </form>
+
+      <p class="text-center text-xs text-slate-500">登录/注册成功后将自动进入主应用。</p>
+    </div>
+  </section>
+
+  <section id="main-app-view" class="hidden h-screen">
+    <div class="h-full grid grid-cols-[280px_1fr] md:grid-cols-[320px_1fr]">
+
+      <aside id="sidebar" class="h-full border-r bg-white flex flex-col transition-transform -translate-x-full md:translate-x-0 fixed md:static z-20 w-[280px] md:w-auto">
+        <div class="p-4 border-b flex items-center gap-3">
+          <div id="user-avatar" class="w-10 h-10 rounded-full bg-slate-900 text-white grid place-items-center text-lg font-bold">U</div>
+          <div class="flex-1 overflow-hidden">
+            <div id="user-email" class="text-sm font-medium truncate">user@example.com</div>
+            <div id="user-uid" class="text-xs text-slate-500 truncate">UID-xxxx</div>
+          </div>
+          <button id="btn-logout" class="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm">退出</button>
+        </div>
+
+        <div class="p-3 grid grid-cols-2 gap-2 border-b">
+          <button id="btn-new-folder" class="py-2 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2">
+            <i data-feather="folder-plus" class="w-4 h-4"></i><span>新建文件夹</span>
+          </button>
+          <button id="btn-new-article" class="py-2 rounded-xl bg-blue-600 text-white flex items-center justify-center gap-2">
+            <i data-feather="file-plus" class="w-4 h-4"></i><span>新建文章</span>
+          </button>
+        </div>
+
+        <div id="file-tree" class="flex-1 overflow-y-auto p-2 space-y-2 scroll-smooth">
+            <div class="text-center text-slate-400 p-8" id="tree-loader">加载中...</div>
+            <div id="tree-content" class="hidden">
+                <div class="text-xs text-slate-400 px-2">未分类</div>
+                <ul class="space-y-1" id="uncategorized-list"></ul>
+                <div class="text-xs text-slate-400 px-2 mt-4">我的文件夹</div>
+                <div id="folders-list" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <div class="border-t">
+          <button id="btn-toggle-data" class="w-full px-4 py-3 text-left flex items-center justify-between">
+            <span class="font-medium text-sm">数据管理</span>
+            <i data-feather="chevron-down"></i>
+          </button>
+          <div id="data-panel" class="hidden p-3 pt-0 space-y-2">
+            <label class="block">
+              <span class="text-xs text-slate-500">导入 PDF</span>
+              <input id="input-pdf" type="file" accept="application/pdf" class="mt-1 block w-full text-sm file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+            </label>
+            <label class="block">
+              <span class="text-xs text-slate-500">导入备份（JSON）</span>
+              <input id="input-backup" type="file" accept="application/json" class="mt-1 block w-full text-sm file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+            </label>
+            <div class="flex gap-2">
+              <button id="btn-export-backup" class="flex-1 py-2 rounded-lg bg-slate-900 text-white text-sm">导出备份</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main id="main-content" class="h-full flex flex-col">
+        <header class="h-14 border-b bg-white px-3 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-2 overflow-hidden">
+            <button id="btn-toggle-sidebar" class="md:hidden p-2 rounded-lg hover:bg-slate-100"><i data-feather="menu"></i></button>
+            <div id="current-title" class="font-medium truncate" title="欢迎">欢迎</div>
+          </div>
+
+          <div id="pdf-controls" class="hidden items-center gap-2">
+            <button id="btn-pdf-prev" class="px-3 py-1 rounded bg-slate-100 disabled:opacity-50">&lt;</button>
+            <div class="text-sm text-slate-600"><span id="pdf-page">1</span> / <span id="pdf-pages">1</span></div>
+            <button id="btn-pdf-next" class="px-3 py-1 rounded bg-slate-100 disabled:opacity-50">&gt;</button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button id="btn-edit" class="px-3 py-1.5 rounded-lg bg-slate-100 text-sm hidden">编辑</button>
+            <button id="btn-save" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hidden flex items-center gap-1.5">
+              <i data-feather="save" class="w-4 h-4"></i><span>保存</span>
+            </button>
+             <div class="relative group">
+                <button id="btn-export-toggle" class="px-3 py-1.5 rounded-lg bg-slate-100 text-sm hidden">导出</button>
+                <div id="export-menu" class="hidden absolute right-0 mt-2 w-28 bg-white rounded-lg shadow-lg border py-1 z-10">
+                    <button id="btn-export-txt" class="block w-full text-left px-4 py-2 text-sm hover:bg-slate-100">为 .txt</button>
+                    <button id="btn-export-pdf" class="block w-full text-left px-4 py-2 text-sm hover:bg-slate-100">为 .pdf</button>
+                </div>
+            </div>
+          </div>
+        </header>
+
+        <section class="flex-1 overflow-hidden relative">
+          <div id="welcome-view" class="h-full grid place-items-center text-slate-500">
+            <div class="text-center space-y-1">
+              <i data-feather="book" class="mx-auto w-8 h-8"></i>
+              <p>从左侧选择或新建一篇文章吧。</p>
+            </div>
+          </div>
+
+          <div id="article-view" class="hidden h-full">
+            <div id="richtext-editor-view" class="h-full flex flex-col">
+              <div id="quill-toolbar" class="border-b bg-white"></div>
+              <div id="quill-container" class="flex-1 overflow-y-auto"></div>
+            </div>
+
+            <div id="pdf-reader-view" class="h-full hidden overflow-auto bg-slate-100 p-4">
+              <canvas id="pdf-canvas" class="mx-auto bg-white shadow-lg rounded"></canvas>
+            </div>
+          </div>
+          
+          <div id="global-loader" class="hidden absolute inset-0 bg-white/50 backdrop-blur-sm grid place-items-center z-30">
+              <div class="text-center space-y-2">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
+                <p id="loader-text" class="text-sm text-slate-600">处理中...</p>
+              </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </section>
+
+  <div id="menu-folder" class="hidden fixed z-50 bg-white border rounded-lg shadow-lg ctxmenu">
+    <ul class="py-1 text-sm">
+      <li><button data-act="rename" class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"><i data-feather="edit-2" class="w-4 h-4"></i>重命名</button></li>
+      <li><button data-act="new-article-in-folder" class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"><i data-feather="file-plus" class="w-4 h-4"></i>新建文章</button></li>
+      <li><button data-act="delete" class="w-full px-3 py-2 text-left hover:bg-slate-50 text-red-600 flex items-center gap-2"><i data-feather="trash-2" class="w-4 h-4"></i>删除</button></li>
+    </ul>
+  </div>
+  <div id="menu-article" class="hidden fixed z-50 bg-white border rounded-lg shadow-lg ctxmenu">
+    <ul class="py-1 text-sm">
+      <li><button data-act="rename" class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"><i data-feather="edit-2" class="w-4 h-4"></i>重命名</button></li>
+      <li><button data-act="move" class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2"><i data-feather="folder" class="w-4 h-4"></i>移动到…</button></li>
+      <li><button data-act="delete" class="w-full px-3 py-2 text-left hover:bg-slate-50 text-red-600 flex items-center gap-2"><i data-feather="trash-2" class="w-4 h-4"></i>删除</button></li>
+    </ul>
+  </div>
+
+  <div id="creation-modal" class="hidden fixed inset-0 z-40 bg-black/30 p-4 flex items-center justify-center">
+    <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 space-y-4">
+      <div class="text-lg font-medium" id="creation-title">新建</div>
+      <label class="block">
+        <span class="text-sm">名称</span>
+        <input id="creation-name" class="mt-1 w-full rounded-lg border p-2" />
+      </label>
+      <label id="creation-folder-container" class="block">
+        <span class="text-sm">放入文件夹（可选）</span>
+        <select id="creation-folder" class="mt-1 w-full rounded-lg border p-2 bg-white"></select>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button data-close class="px-4 py-2 rounded-lg bg-slate-100">取消</button>
+        <button id="creation-confirm" class="px-4 py-2 rounded-lg bg-slate-900 text-white">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="rename-modal" class="hidden fixed inset-0 z-40 bg-black/30 p-4 flex items-center justify-center">
+    <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 space-y-4">
+      <div class="text-lg font-medium">重命名</div>
+      <input id="rename-input" class="w-full rounded-lg border p-2" />
+      <div class="flex justify-end gap-2">
+        <button data-close class="px-4 py-2 rounded-lg bg-slate-100">取消</button>
+        <button id="rename-confirm" class="px-4 py-2 rounded-lg bg-slate-900 text-white">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="move-modal" class="hidden fixed inset-0 z-40 bg-black/30 p-4 flex items-center justify-center">
+    <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 space-y-4">
+      <div class="text-lg font-medium">移动到</div>
+      <select id="move-select" class="w-full rounded-lg border p-2 bg-white"></select>
+      <div class="flex justify-end gap-2">
+        <button data-close class="px-4 py-2 rounded-lg bg-slate-100">取消</button>
+        <button id="move-confirm" class="px-4 py-2 rounded-lg bg-slate-900 text-white">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirm-modal" class="hidden fixed inset-0 z-40 bg-black/30 p-4 flex items-center justify-center">
+    <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 space-y-4">
+      <div id="confirm-message" class="text-base"></div>
+      <div class="flex justify-end gap-2">
+        <button data-close class="px-4 py-2 rounded-lg bg-slate-100">取消</button>
+        <button id="confirm-ok" class="px-4 py-2 rounded-lg bg-red-600 text-white">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="fixed top-4 right-4 z-50 hidden">
+    <div class="px-4 py-3 rounded-xl shadow-lg text-sm flex items-center gap-2" id="toast-content">
+      <i id="toast-icon" data-feather="check-circle"></i>
+      <span id="toast-text"></span>
+    </div>
+  </div>
+
+
+  <script src="https://unpkg.com/feather-icons"></script>
+  <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cos-js-sdk-v5/dist/cos-js-sdk-v5.min.js"></script>
+  
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.21.6/cloudbase.full.js"></script>
+
+  <script>
+    // =================================================================
+    // 1. 配置与常量
+    // =================================================================
+    const TCB_ENV_ID    = 'molijun-0gtahyghc6271173';
+    const API_BASE_URL  = 'https://molijun-0gtahyghc6271173-1317231591.ap-shanghai.app.tcloudbase.com';
+    const DB_API_URL    = `${API_BASE_URL}/api/dbApi`;
+    const STS_API_URL   = `${API_BASE_URL}/api/sts`;
+    
+    // =================================================================
+    // 2. 初始化
+    // =================================================================
+    
+    const app = cloudbase.init({ env: TCB_ENV_ID });
+    const auth = app.auth();
+    let cos; 
+
+    const quillToolbarOptions = [
+      [{ header: [1, 2, 3, false] }], ['bold','italic','underline','strike'],
+      [{ list:'ordered' }, { list:'bullet' }], ['link','image','code-block'],
+      [{ align:[] }, { color:[] }, { background:[] }], ['clean']
+    ];
+    const quill = new Quill('#quill-container', { 
+        theme:'snow', 
+        modules:{ toolbar: { container: quillToolbarOptions, handlers: { image: imageHandler } } } 
+    });
+    $('#quill-toolbar').appendChild(quill.getModule('toolbar').container);
+
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    }
+    
+    // =================================================================
+    // 3. 全局状态
+    // =================================================================
+    const appState = {
+      user: null, 
+      folders: [], 
+      articles: [], 
+      currentArticle: null, 
+      currentPdfDoc: null, 
+      currentPdfPage: 1,
+      isEditing: false, 
+      isSaving: false,
+      contextTarget: null, 
+    };
+
+    // =================================================================
+    // 4. 工具函数
+    // =================================================================
+    const $  = (sel, el=document) => el.querySelector(sel);
+    const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
+    const show = (el) => el.classList.remove('hidden');
+    const hide = (el) => el.classList.add('hidden');
+    const toggle = (el, force) => el.classList.toggle('hidden', force);
+
+    function toast(msg, type = 'success', ms = 2000) {
+      const box = $('#toast'), text = $('#toast-text'), icon = $('#toast-icon');
+      const content = $('#toast-content');
+      
+      text.textContent = msg;
+      content.classList.remove('bg-slate-900', 'bg-red-600', 'text-white');
+
+      if (type === 'success') {
+        content.classList.add('bg-slate-900', 'text-white');
+        icon.innerHTML = '<i data-feather="check-circle"></i>';
+      } else {
+        content.classList.add('bg-red-600', 'text-white');
+        icon.innerHTML = '<i data-feather="alert-circle"></i>';
+      }
+      feather.replace();
+      show(box);
+      clearTimeout(box._t);
+      box._t = setTimeout(() => hide(box), ms);
+    }
+
+    function escapeHTML(s) {
+      return (s||'').replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+    }
+    
+    function timeAgo(ts) {
+      if(!ts) return '';
+      const diff = Date.now()-ts; const mins=Math.floor(diff/60000);
+      if(mins<1) return '刚刚'; if(mins<60) return `${mins}分钟前`;
+      const hrs=Math.floor(mins/60); if(hrs<24) return `${hrs}小时前`;
+      const days=Math.floor(hrs/24); return `${days}天前`;
+    }
+
+    function showLoader(text = '处理中...') {
+        $('#loader-text').textContent = text;
+        show($('#global-loader'));
+    }
+
+    function hideLoader() {
+        hide($('#global-loader'));
+    }
+
+    function downloadFile(filename, content, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // =================================================================
+    // 5. API 调用封装
+    // =================================================================
+    async function apiRequest(method, resource, body = null) {
+      if (!appState.user) throw new Error('用户未登录');
+      const url = `${DB_API_URL}/${resource}`;
+      const options = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Uid': appState.user.uid,
+        }
+      };
+      if (body) {
+        options.body = JSON.stringify(body);
+      }
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: res.statusText }));
+        throw { status: res.status, ...errorData };
+      }
+      if (res.status === 204 || res.headers.get('content-length') === '0') {
+          return { ok: 1 };
+      }
+      return res.json();
+    }
+
+    // =================================================================
+    // 6. 认证逻辑 (使用 v2 API)
+    // =================================================================
+    const authView = $('#auth-view');
+    const appView = $('#main-app-view');
+
+    async function checkAuthState() {
+        showLoader('正在验证登录状态...');
+        try {
+            const loginState = await auth.getLoginState();
+            if (loginState && loginState.user) {
+                appState.user = { uid: loginState.user.uid, email: loginState.user.email };
+                await initializeMainApp();
+            } else {
+                hide(appView); show(authView);
+            }
+        } catch (e) {
+            console.warn('getLoginState error', e);
+            hide(appView); show(authView);
+        } finally {
+            hideLoader();
+        }
+    }
+
+    async function handleLogin(email, password) {
+        const btn = $('#login-form button[type="submit"]');
+        btn.disabled = true; btn.innerHTML = '登录中...';
+        try {
+            const state = await auth.signIn({ username: email, password });
+            if (state && state.user) {
+              toast('登录成功!');
+              await checkAuthState();
+            } else {
+              throw new Error("登录状态无效");
+            }
+        } catch (e) {
+            toast(e.message || '登录失败', 'error');
+        } finally {
+            btn.disabled = false; btn.innerHTML = '登录';
+        }
+    }
+    
+    async function handleSendCode() {
+        const email = $('#register-email').value.trim();
+        if (!email) return toast('请输入邮箱', 'error');
+
+        const btn = $('#btn-send-code');
+        btn.disabled = true;
+        btn.textContent = '发送中...';
+        try {
+            await auth.getVerification({ email });
+            toast('验证码已发送，请查收');
+            let seconds = 60;
+            btn.textContent = `${seconds}s`;
+            const interval = setInterval(() => {
+                seconds--;
+                if (seconds > 0) {
+                    btn.textContent = `${seconds}s`;
+                } else {
+                    clearInterval(interval);
+                    btn.disabled = false;
+                    btn.textContent = '发送验证码';
+                }
+            }, 1000);
+        } catch (e) {
+            toast(`发送失败: ${e.message}`, 'error');
+            btn.disabled = false;
+            btn.textContent = '发送验证码';
+        }
+    }
+
+    async function handleRegister(email, code, password) {
+        const btn = $('#register-form button[type="submit"]');
+        btn.disabled = true; btn.innerHTML = '注册中...';
+        try {
+            const loginState = await auth.signUpWithUsernameAndPassword(email, password, code);
+            if (loginState && loginState.user) {
+              toast('注册并登录成功');
+              await checkAuthState();
+            } else {
+              throw new Error("注册状态无效");
+            }
+        } catch (e) {
+            toast(e.message || '注册失败', 'error');
+        } finally {
+            btn.disabled = false; btn.innerHTML = '注册';
+        }
+    }
+    
+    async function handleLogout() {
+      try {
+        await auth.signOut(); 
+        appState.user = null;
+        appState.folders = [];
+        appState.articles = [];
+        appState.currentArticle = null;
+        switchContentView('welcome');
+        hide(appView);
+        show(authView);
+      } catch (e) {
+        toast("退出失败：" + (e?.message || e), 'error');
+      }
+    }
+    
+    // =================================================================
+    // 7. UI 渲染
+    // =================================================================
+    function renderUserInfo() {
+        if (!appState.user) return;
+        $('#user-email').textContent = appState.user.email;
+        $('#user-uid').textContent = `UID: ${appState.user.uid}`;
+        $('#user-avatar').textContent = (appState.user.email || 'U').charAt(0).toUpperCase();
+    }
+    
+    function renderTree() {
+      const { folders, articles } = appState;
+      const $uncat = $('#uncategorized-list');
+      const $flist = $('#folders-list');
+      
+      $uncat.innerHTML = '';
+      articles.filter(a => !a.folder_id)
+        .sort((a,b) => b.updated_at - a.updated_at)
+        .forEach(a => $uncat.appendChild(renderArticleItem(a)));
+
+      $flist.innerHTML = '';
+      folders.sort((a,b) => a.name.localeCompare(b.name, 'zh-CN'))
+        .forEach(f => {
+          const box = document.createElement('div');
+          box.className = 'border rounded-lg';
+          box.dataset.id = f._id;
+          box.dataset.type = 'folder';
+
+          const hd = document.createElement('div');
+          hd.className = 'px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-t-lg';
+          hd.innerHTML = `<i data-feather="folder" class="w-4 h-4"></i><span class="flex-1 truncate font-medium text-sm">${escapeHTML(f.name)}</span><i data-feather="chevron-down" class="w-4 h-4 transition-transform"></i>`;
+          
+          const ul = document.createElement('ul');
+          ul.className = 'px-2 pb-2 space-y-1 border-t';
+          const folderArticles = articles.filter(a => a.folder_id === f._id).sort((a,b) => b.updated_at - a.updated_at);
+          if (folderArticles.length === 0) {
+              ul.innerHTML = `<li class="px-2 py-1 text-xs text-slate-400">空文件夹</li>`;
+          } else {
+              folderArticles.forEach(a => ul.appendChild(renderArticleItem(a)));
+          }
+          
+          box.appendChild(hd);
+          box.appendChild(ul);
+
+          hd.onclick = () => {
+              ul.classList.toggle('hidden');
+              hd.querySelector('[data-feather="chevron-down"]').classList.toggle('rotate-180');
+          };
+          
+          $flist.appendChild(box);
+          hd.addEventListener('contextmenu', e => showContextMenu(e, $('#menu-folder'), f));
+      });
+      
+      hide($('#tree-loader'));
+      show($('#tree-content'));
+      feather.replace();
+    }
+
+    function renderArticleItem(a) {
+      const li = document.createElement('li');
+      li.className = `flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-100 cursor-pointer text-sm ${appState.currentArticle?._id === a._id ? 'bg-slate-100 font-semibold' : ''}`;
+      li.dataset.id = a._id;
+      li.dataset.type = 'article';
+      
+      const hasDraft = localStorage.getItem(`draft_${a._id}`);
+      const draftIcon = hasDraft ? `<i data-feather="alert-circle" class="w-4 h-4 text-orange-500" title="有未保存的草稿"></i>` : '';
+
+      li.innerHTML = `<i data-feather="${a.type === 'pdf' ? 'file-text' : 'file'}" class="w-4 h-4 shrink-0"></i>
+                      <span class="flex-1 truncate">${escapeHTML(a.title)}</span>
+                      ${draftIcon}
+                      <span class="text-[10px] text-slate-400 shrink-0">${timeAgo(a.updated_at)}</span>`;
+      
+      li.onclick = () => openArticle(a._id);
+      li.addEventListener('contextmenu', e => showContextMenu(e, $('#menu-article'), a));
+      return li;
+    }
+
+    function switchContentView(type = 'welcome') {
+        $$('#main-content header button').forEach(b => hide(b));
+        const views = {
+            welcome: $('#welcome-view'),
+            article: $('#article-view'),
+            richtext: $('#richtext-editor-view'),
+            pdf: $('#pdf-reader-view'),
+            pdfControls: $('#pdf-controls'),
+        };
+        Object.values(views).forEach(v => hide(v));
+
+        if (type === 'welcome') {
+            show(views.welcome);
+            $('#current-title').textContent = '欢迎';
+            appState.currentArticle = null;
+        } else {
+            show(views.article);
+            if (type === 'text') {
+                show(views.richtext);
+                show($('#btn-save'));
+                show($('#btn-export-toggle'));
+                setEditing(true);
+            }
+            if (type === 'pdf') {
+                show(views.pdf);
+                show(views.pdfControls);
+            }
+        }
+        renderTree(); 
+    }
+
+    function setEditing(isEditing) {
+        appState.isEditing = isEditing;
+        quill.enable(isEditing);
+        $('#quill-toolbar').style.display = isEditing ? 'block' : 'none';
+        $('#quill-container').classList.toggle('border-t', !isEditing);
+        $('#btn-edit').style.display = isEditing ? 'none' : 'block';
+        $('#btn-save').style.display = isEditing ? 'block' : 'none';
+    }
+    
+    // =================================================================
+    // 8. 核心数据操作
+    // =================================================================
+    async function initializeMainApp() {
+        renderUserInfo();
+        hide(authView); show(appView);
+        await Promise.all([
+            loadFolders(),
+            loadArticles()
+        ]);
+        renderTree();
+    }
+    
+    async function loadFolders() {
+        const { data } = await apiRequest('GET', 'folders');
+        appState.folders = data;
+    }
+    
+    async function loadArticles() {
+        const { data } = await apiRequest('GET', 'articles');
+        appState.articles = data;
+    }
+
+    async function openArticle(id) {
+        if (appState.isSaving) return toast('正在保存，请稍后...', 'error');
+        showLoader('正在加载文章...');
+        try {
+            const article = await apiRequest('GET', `articles/${id}`);
+            appState.currentArticle = article;
+            $('#current-title').textContent = article.title;
+            $('#current-title').title = article.title;
+
+            if (article.type === 'text') {
+                switchContentView('text');
+                const draftRaw = localStorage.getItem(`draft_${article._id}`);
+                if (draftRaw) {
+                    const draft = JSON.parse(draftRaw);
+                    if (draft.timestamp > article.updated_at) {
+                        quill.setContents(draft.content);
+                        toast('已加载本地草稿');
+                    } else {
+                        quill.setContents(JSON.parse(article.content || '[]'));
+                        localStorage.removeItem(`draft_${article._id}`); 
+                    }
+                } else {
+                    quill.setContents(JSON.parse(article.content || '[]'));
+                }
+            } else if (article.type === 'pdf') {
+                switchContentView('pdf');
+                await loadPdf(article.file_key);
+            }
+        } catch(e) {
+            toast('加载文章失败', 'error');
+            console.error(e);
+            switchContentView('welcome');
+        } finally {
+            hideLoader();
+        }
+    }
+    
+    async function saveCurrentArticle() {
+        if (!appState.currentArticle || appState.currentArticle.type !== 'text') return;
+        if (appState.isSaving) return;
+
+        appState.isSaving = true;
+        const btn = $('#btn-save');
+        btn.disabled = true;
+        btn.querySelector('span').textContent = '保存中...';
+        
+        try {
+            const content = JSON.stringify(quill.getContents());
+            const payload = {
+                content: content,
+                client_last_updated: appState.currentArticle.updated_at
+            };
+            const res = await apiRequest('PUT', `articles/${appState.currentArticle._id}`, payload);
+            
+            appState.currentArticle.updated_at = res.updated_at;
+            const articleInList = appState.articles.find(a => a._id === appState.currentArticle._id);
+            if (articleInList) {
+                articleInList.content = content;
+                articleInList.updated_at = res.updated_at;
+            }
+            localStorage.removeItem(`draft_${appState.currentArticle._id}`); 
+            renderTree();
+            toast('保存成功');
+        } catch (e) {
+            if (e.status === 409) {
+                navigator.clipboard.writeText(quill.root.innerHTML);
+                alert('内容冲突！云端已有更新的版本。您当前编辑的内容已复制到剪贴板，请刷新后重新编辑。');
+                openArticle(appState.currentArticle._id); 
+            } else {
+                toast(`保存失败: ${e.error || '未知错误'}`, 'error');
+            }
+        } finally {
+            appState.isSaving = false;
+            btn.disabled = false;
+            btn.querySelector('span').textContent = '保存';
+        }
+    }
+
+    // =================================================================
+    // 9. 文件上传 (COS) & PDF
+    // =================================================================
+    async function getCosInstance() {
+        if (cos) return cos;
+        const { uid } = await auth.getLoginState().then(s => s.user);
+        const res = await fetch(`${STS_API_URL}?uid=${uid}`);
+        const data = await res.json();
+        cos = new COS({
+            getAuthorization: (options, callback) => {
+                callback({
+                    TmpSecretId: data.credentials.tmpSecretId,
+                    TmpSecretKey: data.credentials.tmpSecretKey,
+                    XCosSecurityToken: data.credentials.sessionToken,
+                    StartTime: data.startTime,
+                    ExpiredTime: data.expiredTime,
+                });
+            }
+        });
+        return { cos, bucket: data.bucket, region: data.region };
+    }
+
+    async function uploadFile(file, type) { 
+        showLoader(`正在上传 ${type === 'pdf' ? 'PDF' : '图片'}...`);
+        try {
+            const { cos, bucket, region } = await getCosInstance();
+            const { uid } = await auth.getLoginState().then(s => s.user);
+            const key = `${uid}/${Date.now()}-${file.name}`;
+            const result = await new Promise((resolve, reject) => {
+              cos.putObject({ Bucket: bucket, Region: region, Key: key, Body: file }, (err, data) => err ? reject(err) : resolve(data));
+            });
+            return { key, url: `https://${result.Location}` };
+        } catch (e) {
+            console.error('Upload failed:', e);
+            toast('上传失败', 'error');
+            return null;
+        } finally {
+            hideLoader();
+        }
+    }
+
+    function imageHandler() {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.click();
+
+        input.onchange = async () => {
+            const file = input.files[0];
+            if (file) {
+                const uploadResult = await uploadFile(file, 'image');
+                if (uploadResult) {
+                    const range = quill.getSelection(true);
+                    quill.insertEmbed(range.index, 'image', uploadResult.url);
+                    quill.setSelection(range.index + 1);
+                }
+            }
+        };
+    }
+    
+    async function handlePdfImport(file) {
+        const uploadResult = await uploadFile(file, 'pdf');
+        if (uploadResult) {
+            await apiRequest('POST', 'articles', {
+                title: file.name.replace(/\.pdf$/i, ''),
+                type: 'pdf',
+                file_key: uploadResult.key,
+            });
+            await loadArticles();
+            renderTree();
+            toast('PDF导入成功');
+        }
+    }
+
+    async function loadPdf(fileKey) {
+        showLoader('正在加载PDF...');
+        try {
+            const { cos, bucket, region } = await getCosInstance();
+            const url = await new Promise((resolve, reject) => {
+              cos.getObjectUrl({ Bucket: bucket, Region: region, Key: fileKey, Sign: true }, (err, data) => err ? reject(err) : resolve(data.Url));
+            });
+
+            const loadingTask = pdfjsLib.getDocument(url);
+            appState.currentPdfDoc = await loadingTask.promise;
+            appState.currentPdfPage = 1;
+            renderPdfPage(appState.currentPdfPage);
+        } catch(e) {
+            console.error('PDF加载失败', e);
+            toast('PDF加载失败', 'error');
+        } finally {
+            hideLoader();
+        }
+    }
+
+    async function renderPdfPage(pageNum) {
+        if (!appState.currentPdfDoc) return;
+        const page = await appState.currentPdfDoc.getPage(pageNum);
+        const canvas = $('#pdf-canvas');
+        const context = canvas.getContext('2d');
+        const viewport = page.getViewport({ scale: 1.5 });
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        await page.render({ canvasContext: context, viewport: viewport }).promise;
+        
+        $('#pdf-page').textContent = pageNum;
+        $('#pdf-pages').textContent = appState.currentPdfDoc.numPages;
+        $('#btn-pdf-prev').disabled = pageNum <= 1;
+        $('#btn-pdf-next').disabled = pageNum >= appState.currentPdfDoc.numPages;
+    }
+
+
+    // =================================================================
+    // 10. 弹窗与右键菜单逻辑
+    // =================================================================
+    function openModal(modal) {
+        show(modal);
+        modal._esc = (e) => { if (e.key === 'Escape') closeModal(modal); };
+        document.addEventListener('keydown', modal._esc);
+    }
+    
+    function closeModal(modal) {
+        hide(modal);
+        if(modal._esc) {
+            document.removeEventListener('keydown', modal._esc);
+            modal._esc = null;
+        }
+    }
+    
+    function showContextMenu(e, menu, target) {
+        e.preventDefault();
+        e.stopPropagation();
+        $$('.ctxmenu').forEach(hide); 
+        
+        appState.contextTarget = target;
+        menu.style.left = `${e.clientX}px`;
+        menu.style.top = `${e.clientY}px`;
+        show(menu);
+    }
+
+    function populateFolderSelect(selectElement, defaultFolderId = '') {
+      selectElement.innerHTML = '<option value="">未分类</option>';
+      appState.folders
+        .sort((a,b) => a.name.localeCompare(b.name, 'zh-CN'))
+        .forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f._id;
+            opt.textContent = f.name;
+            selectElement.appendChild(opt);
+        });
+      selectElement.value = defaultFolderId;
+    }
+
+    // =================================================================
+    // 11. 高级功能
+    // =================================================================
+    quill.on('text-change', (delta, oldDelta, source) => {
+        if (source === 'user' && appState.currentArticle) {
+            const draft = {
+                content: quill.getContents(),
+                timestamp: Date.now()
+            };
+            localStorage.setItem(`draft_${appState.currentArticle._id}`, JSON.stringify(draft));
+            const articleItem = $(`[data-id="${appState.currentArticle._id}"]`);
+            if (articleItem && !articleItem.querySelector('[data-feather="alert-circle"]')) {
+                const icon = document.createElement('i');
+                icon.dataset.feather = "alert-circle";
+                icon.className = "w-4 h-4 text-orange-500";
+                articleItem.insertBefore(icon, articleItem.querySelector('.text-slate-400'));
+                feather.replace();
+            }
+        }
+    });
+
+    async function exportBackup() {
+        showLoader('正在导出...');
+        try {
+            await Promise.all([loadFolders(), loadArticles()]);
+            const fullArticles = await Promise.all(
+                appState.articles.map(a => apiRequest('GET', `articles/${a._id}`))
+            );
+            
+            const backupData = {
+                folders: appState.folders,
+                articles: fullArticles,
+            };
+            downloadFile('notes-backup.json', JSON.stringify(backupData, null, 2), 'application/json');
+            toast('导出成功');
+        } catch(e) {
+            toast('导出失败', 'error');
+            console.error(e);
+        } finally {
+            hideLoader();
+        }
+    }
+
+    async function importBackup(file) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const backupData = JSON.parse(e.target.result);
+                if (!backupData.folders || !backupData.articles) {
+                    throw new Error('备份文件格式不正确');
+                }
+
+                const confirmed = await openConfirmModal('这将清空您云端的所有数据并从备份恢复，此操作不可逆！确定要继续吗？');
+                if (!confirmed) return;
+
+                showLoader('正在导入备份...');
+                for (const article of appState.articles) {
+                    await apiRequest('DELETE', `articles/${article._id}`);
+                }
+                for (const folder of appState.folders) {
+                    await apiRequest('DELETE', `folders/${folder._id}`);
+                }
+
+                const oldToNewFolderIdMap = {};
+                for (const folder of backupData.folders) {
+                    const { id: newId } = await apiRequest('POST', 'folders', { name: folder.name });
+                    oldToNewFolderIdMap[folder._id] = newId;
+                }
+
+                for (const article of backupData.articles) {
+                    const newArticle = { ...article };
+                    delete newArticle._id; 
+                    if (newArticle.folder_id) {
+                        newArticle.folder_id = oldToNewFolderIdMap[newArticle.folder_id] || "";
+                    }
+                    await apiRequest('POST', 'articles', newArticle);
+                }
+                
+                toast('导入成功！');
+                await initializeMainApp(); 
+
+            } catch (err) {
+                toast(`导入失败: ${err.message}`, 'error');
+            } finally {
+                hideLoader();
+                $('#input-backup').value = '';
+            }
+        };
+        reader.readAsText(file);
+    }
+    
+    function exportTxt() {
+        if(!appState.currentArticle || appState.currentArticle.type !== 'text') return;
+        const text = quill.getText();
+        downloadFile(`${appState.currentArticle.title}.txt`, text, 'text/plain');
+    }
+
+    async function exportPdf() {
+        if(!appState.currentArticle || appState.currentArticle.type !== 'text') return;
+        showLoader('正在生成PDF...');
+        try {
+            const { jsPDF } = window.jspdf;
+            const editor = $('.ql-editor');
+            const canvas = await html2canvas(editor, {
+                useCORS: true,
+                scale: 2,
+            });
+            const imgData = canvas.toDataURL('image/png');
+            
+            const pdf = new jsPDF({
+                orientation: 'p',
+                unit: 'px',
+                format: [canvas.width, canvas.height]
+            });
+
+            pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+            pdf.save(`${appState.currentArticle.title}.pdf`);
+        } catch(e) {
+            toast('导出PDF失败', 'error');
+            console.error(e);
+        } finally {
+            hideLoader();
+        }
+    }
+
+
+    // =================================================================
+    // 12. 事件监听器
+    // =================================================================
+    
+    $('#tab-login').onclick = () => {
+      $('#tab-login').classList.add('bg-slate-900','text-white');
+      $('#tab-register').classList.remove('bg-slate-900','text-white');
+      hide($('#register-form')); show($('#login-form'));
+    };
+    $('#tab-register').onclick = () => {
+      $('#tab-register').classList.add('bg-slate-900','text-white');
+      $('#tab-login').classList.remove('bg-slate-900','text-white');
+      hide($('#login-form')); show($('#register-form'));
+    };
+    $('#login-form').addEventListener('submit', e => {
+      e.preventDefault();
+      handleLogin($('#login-email').value, $('#login-password').value);
+    });
+    $('#btn-send-code').addEventListener('click', handleSendCode);
+    $('#register-form').addEventListener('submit', e => {
+      e.preventDefault();
+      handleRegister($('#register-email').value, $('#register-code').value, $('#register-password').value);
+    });
+    $('#btn-logout').onclick = handleLogout;
+    
+    $('#btn-toggle-data').onclick = () => {
+        $('#data-panel').classList.toggle('hidden');
+        $('#btn-toggle-data i').classList.toggle('rotate-180');
+    };
+    document.addEventListener('click', () => $$('.ctxmenu').forEach(hide));
+    $('#btn-toggle-sidebar').onclick = () => $('#sidebar').classList.toggle('-translate-x-full');
+    
+    $('#btn-save').onclick = saveCurrentArticle;
+    $('#btn-export-toggle').onclick = (e) => { e.stopPropagation(); toggle($('#export-menu')); };
+    document.addEventListener('click', e => { if (!$('#btn-export-toggle').contains(e.target)) hide($('#export-menu'))});
+    $('#btn-export-txt').onclick = exportTxt;
+    $('#btn-export-pdf').onclick = exportPdf;
+
+    $('#btn-pdf-prev').onclick = () => { if (appState.currentPdfPage > 1) renderPdfPage(--appState.currentPdfPage); };
+    $('#btn-pdf-next').onclick = () => { if (appState.currentPdfPage < appState.currentPdfDoc.numPages) renderPdfPage(++appState.currentPdfPage); };
+    
+    $('#input-pdf').addEventListener('change', e => {
+        if (e.target.files.length > 0) {
+            handlePdfImport(e.target.files[0]);
+            e.target.value = '';
+        }
+    });
+    $('#input-backup').addEventListener('change', e => {
+        if (e.target.files.length > 0) {
+            importBackup(e.target.files[0]);
+        }
+    });
+
+    $('#btn-export-backup').onclick = exportBackup;
+
+    $('#btn-new-folder').onclick = () => {
+        $('#creation-title').textContent = '新建文件夹';
+        $('#creation-name').value = '';
+        $('#creation-name').placeholder = '文件夹名称';
+        hide($('#creation-folder-container'));
+        openModal($('#creation-modal'));
+        $('#creation-modal').dataset.type = 'folder';
+        $('#creation-name').focus();
+    };
+    $('#btn-new-article').onclick = () => {
+        $('#creation-title').textContent = '新建文章';
+        $('#creation-name').value = '';
+        $('#creation-name').placeholder = '文章标题';
+        populateFolderSelect($('#creation-folder'));
+        show($('#creation-folder-container'));
+        openModal($('#creation-modal'));
+        $('#creation-modal').dataset.type = 'article';
+        $('#creation-name').focus();
+    };
+    $('#creation-confirm').onclick = async () => {
+        const type = $('#creation-modal').dataset.type;
+        const name = $('#creation-name').value.trim();
+        if (!name) return toast('名称不能为空', 'error');
+
+        showLoader('正在创建...');
+        try {
+            if (type === 'folder') {
+                await apiRequest('POST', 'folders', { name });
+                await loadFolders();
+            } else {
+                const folder_id = $('#creation-folder').value;
+                await apiRequest('POST', 'articles', { 
+                    title: name,
+                    folder_id,
+                    type: 'text',
+                    content: '[]' 
+                });
+                await loadArticles();
+            }
+            renderTree();
+            toast('创建成功');
+            closeModal($('#creation-modal'));
+        } catch(e) {
+            toast('创建失败', 'error');
+        } finally {
+            hideLoader();
+        }
+    };
+    
+    $$('.ctxmenu button').forEach(btn => {
+        btn.onclick = async e => {
+            e.stopPropagation();
+            const { act } = btn.dataset;
+            const target = appState.contextTarget;
+            hide(btn.closest('.ctxmenu'));
+
+            if (act === 'rename') {
+                $('#rename-input').value = target.name || target.title;
+                openModal($('#rename-modal'));
+                $('#rename-input').focus();
+            }
+            if (act === 'delete') {
+                const isFolder = 'name' in target;
+                const message = isFolder ? `确定要删除文件夹 "${target.name}" 吗？其下的所有文章也将被删除。` : `确定要删除文章 "${target.title}" 吗？`;
+                const confirmed = await openConfirmModal(message);
+                if (confirmed) {
+                    showLoader('正在删除...');
+                    try {
+                        const resource = isFolder ? `folders/${target._id}` : `articles/${target._id}`;
+                        await apiRequest('DELETE', resource);
+                        toast('删除成功');
+                        if (appState.currentArticle?._id === target._id) switchContentView('welcome');
+                        await initializeMainApp();
+                    } catch(err) {
+                        toast('删除失败', 'error');
+                    } finally {
+                        hideLoader();
+                    }
+                }
+            }
+            if (act === 'new-article-in-folder') {
+                $('#creation-title').textContent = '新建文章';
+                $('#creation-name').value = '';
+                $('#creation-name').placeholder = '文章标题';
+                populateFolderSelect($('#creation-folder'), target._id);
+                show($('#creation-folder-container'));
+                openModal($('#creation-modal'));
+                $('#creation-modal').dataset.type = 'article';
+            }
+            if (act === 'move') {
+                populateFolderSelect($('#move-select'), target.folder_id || '');
+                openModal($('#move-modal'));
+            }
+        }
+    });
+
+    $('#rename-confirm').onclick = async () => {
+        const newName = $('#rename-input').value.trim();
+        if (!newName) return toast('名称不能为空', 'error');
+        const target = appState.contextTarget;
+        const isFolder = 'name' in target;
+
+        showLoader('正在重命名...');
+        try {
+            if (isFolder) {
+                await apiRequest('PUT', `folders/${target._id}`, { name: newName });
+                target.name = newName;
+            } else {
+                await apiRequest('PUT', `articles/${target._id}`, { title: newName });
+                target.title = newName;
+                if (appState.currentArticle?._id === target._id) {
+                    $('#current-title').textContent = newName;
+                }
+            }
+            renderTree();
+            toast('重命名成功');
+            closeModal($('#rename-modal'));
+        } catch(e) {
+            toast('重命名失败', 'error');
+        } finally {
+            hideLoader();
+        }
+    };
+    
+    $('#move-confirm').onclick = async () => {
+        const target = appState.contextTarget;
+        const newFolderId = $('#move-select').value;
+        if (target.folder_id === newFolderId) return closeModal($('#move-modal'));
+        showLoader('正在移动...');
+        try {
+            await apiRequest('POST', `articles/${target._id}/move`, { folder_id: newFolderId });
+            target.folder_id = newFolderId;
+            renderTree();
+            toast('移动成功');
+            closeModal($('#move-modal'));
+        } catch(e) {
+            toast('移动失败', 'error');
+        } finally {
+            hideLoader();
+        }
+    };
+
+    function openConfirmModal(message) {
+      $('#confirm-message').textContent = message;
+      openModal($('#confirm-modal'));
+      return new Promise(resolve => {
+        $('#confirm-ok').onclick = () => {
+          closeModal($('#confirm-modal'));
+          resolve(true);
+        };
+        $('[data-close]', $('#confirm-modal')).onclick = () => {
+          closeModal($('#confirm-modal'));
+          resolve(false);
+        };
+      });
+    }
+
+    $$('[data-close]').forEach(btn => btn.addEventListener('click', e => closeModal(e.target.closest('.fixed'))));
+    
+    // =================================================================
+    // 13. 应用启动
+    // =================================================================
+    feather.replace();
+    checkAuthState();
+  </script>
+</body>
+</html>
