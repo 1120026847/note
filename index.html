@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>极简笔记（富文本·修复按钮 + 可编辑）</title>
+<title>极简笔记 · 富文本 + COS（修复保存副本 & 可编辑）</title>
 
-<!-- CloudBase（认证） -->
+<!-- CloudBase Auth -->
 <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.21.6/cloudbase.full.js"></script>
 <!-- COS JS SDK -->
 <script src="https://cdn.jsdelivr.net/npm/cos-js-sdk-v5/dist/cos-js-sdk-v5.min.js"></script>
 
-<!-- Quill 2.x -->
+<!-- Quill -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css"/>
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
 
@@ -32,10 +32,9 @@
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Inter,Roboto,Arial}
-
 .app{display:grid;grid-template-columns:300px 1fr;gap:12px;width:100vw;min-height:100vh;padding:0 0 8px 0}
 
-/* 侧边栏 */
+/* 左侧 */
 .sidebar{display:flex;flex-direction:column;gap:12px;border:1px solid var(--border);border-radius:var(--radius);background:#fff;padding:12px;min-height:calc(100vh - 8px)}
 .brand{border:2px solid var(--accent);border-radius:12px;padding:14px 10px;font-weight:800;font-size:22px;text-align:center}
 .btn{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
@@ -69,7 +68,7 @@ details.group>ul{margin:0;border-top:1px solid #f1f5f9}
 .accountMenu.open{display:block}.accountMenu .item{padding:10px 12px;cursor:pointer}.accountMenu .item:hover{background:#f3f4f6}
 .actions{display:flex;justify-content:flex-end;gap:10px;position:sticky;top:6px;z-index:3;background:#fff;padding-top:4px}
 
-/* 内容卡片 */
+/* 内容 */
 .contentCard{flex:1;border:2px dashed var(--border);border-radius:16px;background:#fff;padding:12px;min-height:70vh;position:relative}
 .toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px}
 .titleInput{min-width:260px;width:420px}
@@ -102,7 +101,7 @@ input{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10p
 <body>
 
 <div class="app">
-  <!-- 左栏 -->
+  <!-- 侧边栏 -->
   <aside class="sidebar">
     <div class="brand">网站名</div>
     <div class="blockbtns">
@@ -120,7 +119,7 @@ input{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10p
     <div class="dataFoot"><div id="btnData" class="dataBtn">数据区</div></div>
   </aside>
 
-  <!-- 右侧 -->
+  <!-- 内容 -->
   <section class="contentWrap">
     <div class="topbar">
       <div class="topbarRow">
@@ -129,7 +128,6 @@ input{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10p
           <div id="accountMenu" class="accountMenu"><div id="menuLogout" class="item">退出登录</div></div>
         </div>
       </div>
-      <!-- 只保留这一组按钮 -->
       <div class="actions">
         <button id="btnEdit" class="btn secondary sm">编辑</button>
         <button id="btnSave" class="btn sm">保存</button>
@@ -191,7 +189,7 @@ input{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10p
   <div class="desc">导入：zip 内含 .md/.txt/.html；导出：把 COS 的笔记打包下载。</div>
 </div>
 
-<!-- 隐藏文件选择器 -->
+<!-- 隐藏选择器 -->
 <input id="pickPdf" type="file" accept="application/pdf" class="hidden"/>
 <input id="pickZip" type="file" accept=".zip" class="hidden"/>
 
@@ -204,25 +202,24 @@ input{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10p
 </div>
 
 <script>
-/* ====== 环境 ====== */
-const CLOUDBASE_ENV = "molijun-0gtahyghc6271173";   // TODO: 换成你的
-const STS_URL       = "https://molijun-0gtahyghc6271173-1317231591.ap-shanghai.app.tcloudbase.com/api/sts"; // TODO: 换成你的
-const AUTO_EDIT_ON_OPEN = true;   // 打开即编辑（如需默认只读设为 false）
+/* ====== 环境变量（换成你的） ====== */
+const CLOUDBASE_ENV = "molijun-0gtahyghc6271173";  // TODO
+const STS_URL       = "https://molijun-0gtahyghc6271173-1317231591.ap-shanghai.app.tcloudbase.com/api/sts"; // TODO
+const AUTO_EDIT_ON_OPEN = true;
 
-/* ====== SDK ====== */
+/* ====== 初始化 ====== */
 const app  = cloudbase.init({ env: CLOUDBASE_ENV });
 const auth = app.auth();
 const $ = id => document.getElementById(id);
 
-/* ====== DOM ====== */
 const ui = {
-  // 左侧
+  // 左
   uncatList: $("uncatList"), uncatState: $("uncatState"), folderGroups: $("folderGroups"),
   btnNewNote: $("btnNewNote"), btnNewFolder: $("btnNewFolder"), btnData: $("btnData"),
   // 顶部
   accountBtn: $("accountBtn"), accountMenu: $("accountMenu"), menuLogout: $("menuLogout"),
   btnEdit: $("btnEdit"), btnSave: $("btnSave"), btnSync: $("btnSync"),
-  // 内容/编辑器
+  // 内容
   contentCard: $("contentCard"), noteBox: $("noteBox"), pdfBox: $("pdfBox"),
   noteTitle: $("noteTitle"), fileHint: $("fileHint"), saveState: $("saveState"),
   editorEl: $("editor"), toolbarEl: $("toolbar"), pickImage: $("pickImage"),
@@ -230,7 +227,7 @@ const ui = {
   // PDF
   pdfPrev: $("pdfPrev"), pdfNext: $("pdfNext"), pdfZoomOut: $("pdfZoomOut"), pdfZoomIn: $("pdfZoomIn"),
   pdfInfo: $("pdfInfo"), pdfOpenRaw: $("pdfOpenRaw"), pdfCanvas: $("pdfCanvas"),
-  // 数据区
+  // 数据
   dataSheet: $("dataSheet"), optImportPdf: $("optImportPdf"), optImportAll: $("optImportAll"), optExportAll: $("optExportAll"),
   pickPdf: $("pickPdf"), pickZip: $("pickZip"),
   // 登录
@@ -238,31 +235,29 @@ const ui = {
   btnSignIn: $("btnSignIn"), btnSignUp: $("btnSignUp"), btnCloseAuth: $("btnCloseAuth"), authState: $("authState"),
 };
 
-/* ====== 状态 ====== */
+/* ====== 全局状态 ====== */
 let currentUID = null;
 let openedNoteKey = null;
 
-/* ====== Quill ====== */
+/* ====== Quill（官方 API：enable/disable/insertEmbed 等） ====== */
 const quill = new Quill(ui.editorEl, {
   theme: 'snow',
   modules: { toolbar: ui.toolbarEl },
-  placeholder: '在此编辑，可粘贴/拖拽图片（自动上传至 COS 并插入）…'
+  placeholder: '在此编辑，可粘贴/拖拽图片（自动上传 COS 并插入）…'
 });
-// 读写切换用官方 API：quill.enable(true/false)  :contentReference[oaicite:1]{index=1}
-quill.enable(false);
-// 工具栏「图片」改为选择文件
-quill.getModule('toolbar').addHandler('image', () => ui.pickImage.click());
+quill.enable(false); // 打开笔记后再决定
+quill.getModule('toolbar').addHandler('image', () => ui.pickImage.click()); // 工具栏「图片」
 
 /* ====== 小工具 ====== */
 function pad2(n){return n<10?("0"+n):""+n}
 function ts(){ const d=new Date(); return d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"_"+pad2(d.getHours())+pad2(d.getMinutes())+pad2(d.getSeconds());}
 function sanitizeFileName(s){ return (s||"未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,80); }
 function getEditorHTML(){ return quill.root.innerHTML || ""; }
-function setEditorHTML(html){ quill.setContents([]); quill.clipboard.dangerouslyPasteHTML(DOMPurify.sanitize(html||"")); } // 先清洗再注入  :contentReference[oaicite:2]{index=2}
+function setEditorHTML(html){ quill.setContents([]); quill.clipboard.dangerouslyPasteHTML(DOMPurify.sanitize(html||"")); } // 先清洗再注入
 function setEditorText(text){ quill.setText(text || ""); }
 function highlightActive(key){ document.querySelectorAll(".item").forEach(li=> li.classList.toggle("active", li.dataset.key===key)); }
 
-/* ====== 登录 ====== */
+/* ====== 登录流程 ====== */
 async function ensureLogin(){
   const st = await auth.getLoginState();
   if(!st?.user) throw new Error("尚未登录");
@@ -402,12 +397,14 @@ async function openNote(obj){
   }catch(e){ alert("读取失败："+(e?.message||e)); }
 }
 
+/** 进入编辑（官方 API：enable(true)） */
 function enterEdit(){
-  quill.enable(true);              // 正式进入可编辑  :contentReference[oaicite:3]{index=3}
+  quill.enable(true);  // quill.enable(true/false) 来控制编辑态（Quill 官方 API）  :contentReference[oaicite:4]{index=4}
   quill.focus();
   ui.saveState.textContent="编辑中…（Ctrl/⌘+S 保存）";
 }
 
+/** 保存：覆盖或迁移，不产生副本；保持编辑态 */
 document.addEventListener("keydown",(e)=>{
   const k = e.key.toLowerCase();
   if((e.ctrlKey||e.metaKey) && k==="s"){ e.preventDefault(); saveNote(); }
@@ -416,30 +413,57 @@ document.addEventListener("keydown",(e)=>{
 ui.editorEl.addEventListener("dblclick", enterEdit);
 
 async function saveNote(){
+  const html = getEditorHTML();
+  const blob = new Blob([html], { type:"text/html;charset=utf-8" });
   ui.saveState.textContent = "保存中…";
+
   try{
     const { cos, bucket, region, uid } = await ensureCOS();
-    let key = openedNoteKey;
-    if(!key){
-      const safe = sanitizeFileName(ui.noteTitle.value || "未命名");
-      key = `${uid}/${ts()}_${safe}.html`;
-    }else if(!/\.html$/i.test(key)){
-      const base = key.split("/").slice(0,-1).join("/");
-      const safe = sanitizeFileName(ui.noteTitle.value || key.split("/").pop().replace(/\.(md|txt)$/i,""));
-      key = `${base}/${safe}.html`;
+
+    // 计算目标 key：同目录，同名 .html；无打开文件则用时间戳
+    let oldKey = openedNoteKey;
+    const safeTitle = sanitizeFileName(ui.noteTitle.value || "未命名");
+    let dir = `${uid}/`;
+    if(oldKey && oldKey.includes("/")) dir = oldKey.slice(0, oldKey.lastIndexOf("/")+1);
+
+    let newKey;
+    if(!oldKey){
+      newKey = `${dir}${ts()}_${safeTitle}.html`; // 新建
+    }else{
+      const oldName = oldKey.split("/").pop();
+      const oldBase = oldName.replace(/\.(md|txt|html)$/i,"");
+      const needHtml = !/\.html$/i.test(oldName);
+      const needRename = (oldBase !== safeTitle);
+      if(needHtml || needRename){
+        newKey = `${dir}${safeTitle}.html`;      // 迁移/重命名为 .html
+      }else{
+        newKey = oldKey;                         // 覆盖
+      }
     }
-    const html = getEditorHTML();
-    const blob = new Blob([html], { type:"text/html;charset=utf-8" });
-    await new Promise((res,rej)=> cos.putObject({Bucket:bucket,Region:region,Key:key,Body:blob},(e,d)=>e?rej(e):res(d)));
-    openedNoteKey = key; quill.enable(false);
-    ui.saveState.textContent="已保存"; ui.fileHint.textContent = key.split("/").pop();
-    refreshLists(); highlightActive(key);
-  }catch(e){ ui.saveState.textContent = "失败：" + (e?.message||e); }
+
+    // 上传到 newKey
+    await new Promise((res,rej)=> cos.putObject({Bucket:bucket,Region:region,Key:newKey,Body:blob},(e,d)=>e?rej(e):res(d)));
+
+    // 若 oldKey 存在且改变了，删除旧文件，指向新文件
+    if(oldKey && newKey !== oldKey){
+      try{ await new Promise((res,rej)=> cos.deleteObject({Bucket:bucket,Region:region,Key:oldKey},(e,d)=>e?rej(e):res(d))); }catch{}
+      openedNoteKey = newKey;
+    }else{
+      openedNoteKey = newKey;
+    }
+
+    ui.fileHint.textContent = newKey.split("/").pop();
+    ui.saveState.textContent="已保存（保持编辑）";
+    quill.enable(true); // 保持编辑态
+    refreshLists(); highlightActive(openedNoteKey);
+  }catch(e){
+    ui.saveState.textContent = "失败：" + (e?.message||e);
+  }
 }
 
 async function syncNow(){ await refreshLists(); if(openedNoteKey){ await openNote({Key:openedNoteKey}); } }
 
-/* ====== 图片上传到 COS 并插入编辑器 ====== */
+/* ====== 图片：粘贴/拖拽/选择 -> COS -> insertEmbed ====== */
 ["dragenter","dragover"].forEach(ev=> ui.contentCard.addEventListener(ev, e=>{ e.preventDefault(); ui.contentCard.classList.add("dragover"); }));
 ["dragleave","drop"].forEach(ev=> ui.contentCard.addEventListener(ev, e=>{ e.preventDefault(); if(ev==="drop") onDrop(e); ui.contentCard.classList.remove("dragover"); }));
 
@@ -450,13 +474,11 @@ async function onDrop(e){
   if(imgs.length) await handleImageFiles(imgs);
   if(pdfs.length) await handlePdfFiles(pdfs);
 }
-
 ui.pickImage.onchange = async e=>{
   const files = Array.from(e.target.files || []);
   if(files.length) await handleImageFiles(files);
   e.target.value="";
 };
-
 ui.editorEl.addEventListener("paste", async (e)=>{
   const items = e.clipboardData?.items ? Array.from(e.clipboardData.items) : [];
   const imgItems = items.filter(it=> it.kind==="file" && it.type.startsWith("image/"));
@@ -476,17 +498,18 @@ async function handleImageFiles(files){
     const ext = (f.name.split(".").pop()||"png").toLowerCase();
     const key = `${uid}/assets/${new Date().getFullYear()}/${pad2(new Date().getMonth()+1)}/${ts()}_${sanitizeFileName(ui.noteTitle.value)}.${ext}`;
     await new Promise((res,rej)=> cos.uploadFile({Bucket:bucket,Region:region,Key:key,Body:f,SliceSize:1024*1024,onProgress:p=>ui.saveState.textContent=`上传中 ${f.name} ${(p.percent*100).toFixed(1)}%`},(e,d)=>e?rej(e):res(d)));
-    // 取预签名 URL 用于直接展示  :contentReference[oaicite:4]{index=4}
-    const url = await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:key,Sign:true},(e,r)=>e?rej(e):res(r.Url)));
-    // 插到光标处  :contentReference[oaicite:5]{index=5}
+    // 预签名 URL（COS 官方文档：getObjectUrl 可生成访问链接）
+    const url = await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:key,Sign:true},(e,r)=>e?rej(e):res(r.Url))); // :contentReference[oaicite:5]{index=5}
+    // 插到光标处（Quill insertEmbed）
     const range = quill.getSelection(true) || { index: quill.getLength(), length: 0 };
-    quill.insertEmbed(range.index, 'image', url, 'user');
+    quill.insertEmbed(range.index, 'image', url, 'user');  // :contentReference[oaicite:6]{index=6}
     quill.setSelection(range.index + 1, 0, 'silent');
     ui.saveState.textContent = `图片已上传并插入：${f.name}`;
   }
 }
 
-/* ====== PDF 上传/阅读 ====== */
+/* ====== PDF 上传/阅读（PDF.js 标准流程） ====== */
+let pdfDoc=null, pdfUrl=null, pdfPage=1, pdfTotal=0, pdfScale=1.15;
 async function handlePdfFiles(files){
   for(const f of files){
     if(f.type!=="application/pdf") continue;
@@ -505,24 +528,25 @@ function showNoteUI(){ ui.noteBox.classList.remove("hidden"); ui.pdfBox.classLis
 function showPdfUI(){ ui.noteBox.classList.add("hidden"); ui.pdfBox.classList.remove("hidden"); }
 async function openPdfByUrl(signedUrl){
   try{
-    showPdfUI(); ui.pdfOpenRaw.href = signedUrl;
-    const task = pdfjsLib.getDocument({ url:signedUrl }); // PDF.js 标准流程  :contentReference[oaicite:6]{index=6}
-    const doc = await task.promise; let page=1, total=doc.numPages, scale=1.15;
-    Object.assign(window, { __pdf:{doc,page,total,scale} });
-    await (async function render(){
-      const p = await __pdf.doc.getPage(__pdf.page);
-      const viewport = p.getViewport({ scale: __pdf.scale });
-      const canvas = ui.pdfCanvas, ctx = canvas.getContext("2d");
-      canvas.width = viewport.width; canvas.height = viewport.height;
-      await p.render({ canvasContext: ctx, viewport }).promise;
-      ui.pdfInfo.textContent = `${__pdf.page} / ${__pdf.total}`;
-    })();
-    ui.pdfPrev.onclick = ()=>{ if(__pdf.page>1){ __pdf.page--; openPdfByUrl(signedUrl); } };
-    ui.pdfNext.onclick = ()=>{ if(__pdf.page<__pdf.total){ __pdf.page++; openPdfByUrl(signedUrl); } };
-    ui.pdfZoomIn.onclick = ()=>{ __pdf.scale=Math.min(3,__pdf.scale+0.15); openPdfByUrl(signedUrl); };
-    ui.pdfZoomOut.onclick = ()=>{ __pdf.scale=Math.max(0.5,__pdf.scale-0.15); openPdfByUrl(signedUrl); };
+    showPdfUI(); pdfUrl = signedUrl; ui.pdfOpenRaw.href = signedUrl;
+    const task = pdfjsLib.getDocument({ url:signedUrl }); // PDF.js 示例流程  :contentReference[oaicite:7]{index=7}
+    pdfDoc = await task.promise; pdfTotal = pdfDoc.numPages; pdfPage = 1; pdfScale = 1.15;
+    await renderPdfPage(); ui.saveState.textContent="";
   }catch(e){ ui.saveState.textContent="PDF 加载失败："+(e?.message||e); }
 }
+async function renderPdfPage(){
+  if(!pdfDoc) return;
+  const page = await pdfDoc.getPage(pdfPage);
+  const viewport = page.getViewport({ scale: pdfScale });
+  const canvas = ui.pdfCanvas, ctx = canvas.getContext("2d");
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  ui.pdfInfo.textContent = `${pdfPage} / ${pdfTotal}`;
+}
+ui.pdfPrev.onclick = ()=>{ if(pdfPage>1){ pdfPage--; renderPdfPage(); } };
+ui.pdfNext.onclick = ()=>{ if(pdfPage<pdfTotal){ pdfPage++; renderPdfPage(); } };
+ui.pdfZoomIn.onclick = ()=>{ pdfScale = Math.min(3, pdfScale+0.15); renderPdfPage(); };
+ui.pdfZoomOut.onclick = ()=>{ pdfScale = Math.max(0.5, pdfScale-0.15); renderPdfPage(); };
 
 /* ====== 数据区 ====== */
 ui.btnData.onclick = ()=> ui.dataSheet.classList.toggle("open");
@@ -546,27 +570,6 @@ ui.pickZip.onchange = async e=>{
     ui.saveState.textContent = `导入完成，共 ${entries.length} 篇`; refreshLists();
   }catch(err){ ui.saveState.textContent="导入失败："+(err?.message||err); }
   e.target.value="";
-};
-
-ui.optExportAll.onclick = async ()=>{
-  try{
-    ui.saveState.textContent = "打包中…";
-    const { cos, bucket, region, uid } = await ensureCOS();
-    const data = await new Promise((res,rej)=> cos.getBucket({Bucket:bucket,Region:region,Prefix:`${uid}/`,MaxKeys:1000},(e,d)=>e?rej(e):res(d)));
-    const notes = (data?.Contents||[]).filter(o=>/\.(md|txt|html)$/i.test(o.Key));
-    const zip = new JSZip();
-    let idx=0;
-    for(const o of notes){
-      const obj = await new Promise((res,rej)=> cos.getObject({Bucket:bucket,Region:region,Key:o.Key},(e,r)=>e?rej(e):res(r)));
-      const text = obj.Body instanceof Blob ? await obj.Body.text() : (typeof obj.Body==="string"?obj.Body:new TextDecoder().decode(obj.Body));
-      const name = o.Key.split("/").pop();
-      zip.file(name, text);
-      ui.saveState.textContent = `打包 ${++idx}/${notes.length}`;
-    }
-    const blob = await zip.generateAsync({ type:"blob", compression:"DEFLATE" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `notes_export_${ts()}.zip`; a.click();
-    URL.revokeObjectURL(a.href); ui.saveState.textContent = "已导出";
-  }catch(e){ ui.saveState.textContent = "导出失败："+(e?.message||e); }
 };
 
 /* ====== 新建文件夹 ====== */
