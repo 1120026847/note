@@ -1,566 +1,547 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>极简笔记 · 云端版（含 PDF 阅读器）</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>极简笔记</title>
 
-  <!-- CloudBase JS SDK（认证） -->
-  <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.21.6/cloudbase.full.js"></script>
-  <!-- COS JS SDK -->
-  <script src="https://cdn.jsdelivr.net/npm/cos-js-sdk-v5/dist/cos-js-sdk-v5.min.js"></script>
-  <!-- Markdown 渲染 + XSS 清理（用于笔记） -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
-  <!-- PDF.js（核心与 worker） -->
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.min.js"></script>
-  <script>
-    // 按 PDF.js 官方方式设置 worker 路径，否则将无法渲染。:contentReference[oaicite:2]{index=2}
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.min.js";
-  </script>
+<!-- CloudBase（认证） -->
+<script src="https://static.cloudbase.net/cloudbase-js-sdk/2.21.6/cloudbase.full.js"></script>
+<!-- COS JS SDK -->
+<script src="https://cdn.jsdelivr.net/npm/cos-js-sdk-v5/dist/cos-js-sdk-v5.min.js"></script>
+<!-- Markdown 渲染 + XSS 清理 -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+<!-- PDF.js（核心与 worker） -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.min.js"></script>
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.min.js";</script>
+<!-- JSZip（导入/导出所有数据） -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
-  <style>
-    :root{
-      --bg:#f8fafc; --card:#ffffff; --border:#e5e7eb; --muted:#6b7280; --text:#0f172a; --brand:#0f172a;
-      --danger:#b91c1c; --radius:14px; --drop:#eef2ff;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,Arial}
-    .app{max-width:1200px;margin:0 auto;height:100%;display:grid;grid-template-rows:auto 1fr}
-    header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card);position:sticky;top:0;z-index:5}
-    .main{display:grid;grid-template-columns:300px 1fr;gap:16px;padding:16px}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:14px}
-    .sidebar{padding:12px;display:flex;flex-direction:column;gap:12px;height:calc(100vh - 80px);overflow:hidden}
-    .sidebar .user{display:flex;align-items:center;justify-content:space-between;border:1px dashed var(--border);border-radius:12px;padding:10px}
-    .btn{border:1px solid var(--brand);background:var(--brand);color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
-    .btn.secondary{background:#fff;color:var(--text);border-color:var(--border)}
-    .btn.ghost{background:transparent;border-color:var(--border)}
-    .btn.danger{background:#b91c1c;border-color:#b91c1c;color:#fff}
-    .row{display:flex;gap:8px;flex-wrap:wrap}
-    input,textarea{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff}
-    input[type="search"]{width:100%}
-    .muted{color:var(--muted);font-size:12px}
-    .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace}
-    .hidden{display:none !important}
-    .section-title{font-weight:700;padding:0 6px}
+<style>
+:root{
+  --bg:#f8fafc; --card:#ffffff; --border:#e5e7eb; --muted:#6b7280; --text:#0f172a; --brand:#0f172a;
+  --danger:#b91c1c; --radius:14px; --drop:#eef2ff; --accent:#111827;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Inter,Roboto,Arial}
 
-    .list{list-style:none;margin:0;padding:0;overflow:auto}
-    .list li{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid #f1f5f9;padding:10px 6px}
-    .list li:first-child{border-top:0}
-    .list .meta{display:flex;flex-direction:column}
-    .list .name{font-size:13px}
-    .list .time{font-size:12px;color:var(--muted)}
-    .list .ops{display:flex;gap:6px}
+/* 整体两列：侧边栏 + 内容区 */
+.app{display:grid;grid-template-columns:300px 1fr;gap:16px;max-width:1400px;margin:0 auto;padding:14px}
 
-    .editor{padding:14px;display:flex;flex-direction:column;gap:10px;min-height:560px;position:relative}
-    .editor .toolbar{display:flex;align-items:center;justify-content:space-between}
-    .editor textarea{width:100%;min-height:220px;resize:vertical}
-    .preview{border:1px dashed var(--border);border-radius:12px;padding:12px;background:#fff;overflow:auto}
-    .preview img{max-width:100%;height:auto;border-radius:8px}
-    .drop-mask{position:absolute;inset:0;border-radius:14px;border:2px dashed #818cf8;background:var(--drop);display:none;align-items:center;justify-content:center;color:#4338ca;font-weight:600;font-size:16px}
-    .editor.dragover .drop-mask{display:flex}
+/* 侧边栏 */
+.sidebar{display:flex;flex-direction:column;gap:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);padding:14px;min-height:calc(100vh - 28px)}
+.brand{border:2px solid var(--accent);border-radius:12px;padding:16px 12px;font-weight:800;font-size:22px;text-align:center}
+.btn{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+.btn.secondary{background:#fff;color:var(--text);border-color:var(--border)}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--border)}
+.btn.danger{background:var(--danger);border-color:var(--danger)}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.blockbtns{display:flex;gap:12px}
+.blockbtns .btn{flex:1}
 
-    /* PDF viewer */
-    .pdf-toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between}
-    .pdf-controls{display:flex;gap:8px;align-items:center}
-    .pdf-canvas-wrap{display:flex;justify-content:center;align-items:center;background:#fff;border:1px dashed var(--border);border-radius:12px;padding:8px;min-height:400px;overflow:auto}
-    canvas{max-width:100%}
-  </style>
+/* 左侧“笔记列表”块 */
+.noteList{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:12px;overflow:auto;min-height:300px;max-height:42vh}
+.noteItem{padding:14px 12px;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.noteItem:first-child{border-top:0}
+.noteItem .name{font-size:14px}
+.noteItem.active{background:#f3f4f6}
+.noteItem .open{white-space:nowrap}
+
+/* 侧边栏底部数据区 */
+.dataFoot{margin-top:auto;border-top:1px dashed var(--border);padding-top:12px}
+.dataBtn{width:100%;text-align:center;border:1px dashed var(--border);border-radius:12px;padding:12px;cursor:pointer;background:#fff}
+.dataBtn:hover{background:#f9fafb}
+
+/* 右侧：顶部 header（右上角账户名 + 下面的刷新/编辑按钮）和主体内容卡片 */
+.contentWrap{display:flex;flex-direction:column;gap:14px}
+.topbar{
+  display:grid;grid-template-columns:1fr;grid-template-rows:auto auto;gap:8px;
+  border:1px solid var(--border);border-radius:var(--radius);background:var(--card);padding:10px 12px;
+}
+.topbarRow{display:flex;justify-content:flex-end;align-items:center}
+.account{position:relative}
+.accountBtn{border:1px solid var(--border);background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer;min-width:180px;text-align:right}
+.accountMenu{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.08);display:none;min-width:180px;z-index:5}
+.accountMenu.open{display:block}
+.accountMenu .item{padding:10px 12px;cursor:pointer}
+.accountMenu .item:hover{background:#f3f4f6}
+
+/* 第二行：按钮放在账户名下面 */
+.actions{display:flex;justify-content:flex-end;gap:10px}
+
+/* 内容卡：占据大部分空间 */
+.contentCard{flex:1;border:2px dashed var(--border);border-radius:16px;background:#fff;padding:14px;min-height:70vh;position:relative}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.titleInput{min-width:260px;width:420px}
+input,textarea{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff}
+textarea{width:100%;min-height:240px;resize:vertical}
+.muted{color:var(--muted);font-size:12px}
+
+/* Markdown 预览 */
+.preview{border:1px dashed var(--border);border-radius:12px;padding:12px;background:#fff;overflow:auto}
+.preview img{max-width:100%;border-radius:8px}
+
+/* PDF 阅读器 */
+.pdf-toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px}
+.pdf-canvas-wrap{display:flex;justify-content:center;align-items:center;background:#fff;border:1px dashed var(--border);border-radius:12px;padding:8px;min-height:400px;overflow:auto}
+.hidden{display:none !important}
+
+/* 拖拽遮罩（图片/PDF皆可拖入） */
+.drop-mask{position:absolute;inset:0;border-radius:16px;border:2px dashed #818cf8;background:var(--drop);display:none;align-items:center;justify-content:center;color:#4338ca;font-weight:600;font-size:16px}
+.contentCard.dragover .drop-mask{display:flex}
+
+/* 底部上弹菜单（数据区） */
+.sheet{position:fixed;left:50%;transform:translateX(-50%);bottom:-320px;transition:bottom .25s ease;z-index:40;background:#fff;border:1px solid var(--border);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.12);padding:14px;min-width:520px}
+.sheet.open{bottom:0}
+.sheet .title{font-weight:700;margin-bottom:8px}
+.sheet .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.sheet .opt{border:1px solid var(--border);border-radius:12px;padding:12px;cursor:pointer;text-align:center;background:#fff}
+.sheet .opt:hover{background:#f9fafb}
+.sheet .desc{margin-top:8px;color:var(--muted)}
+</style>
 </head>
 <body>
+
 <div class="app">
-  <header>
-    <h1>📝 极简笔记</h1>
-    <div class="row">
-      <button id="btnToggleEdit" class="btn hidden">编辑</button>
-      <button id="btnLogout" class="btn secondary hidden">退出登录</button>
+  <!-- 左侧：侧边栏 -->
+  <aside class="sidebar">
+    <div class="brand">网站名</div>
+
+    <div class="blockbtns">
+      <button id="btnNewNote" class="btn">新建文章</button>
+      <button id="btnNewFolder" class="btn secondary">新建文件夹</button>
     </div>
-  </header>
 
-  <div class="main">
-    <!-- 左侧：账户 / 笔记管理 / PDF 管理 -->
-    <aside class="sidebar card">
-      <div class="user">
-        <div>
-          <div class="mono" id="accountEmail">未登录</div>
-          <div class="muted" id="accountUid"></div>
-        </div>
-        <button id="btnOpenAuth" class="btn ghost">登录/注册</button>
-      </div>
+    <ul id="noteList" class="noteList"></ul>
+    <div id="noteListState" class="muted"></div>
 
-      <!-- 笔记操作 -->
-      <div class="card" style="padding:10px">
-        <div class="row">
-          <button id="btnNew" class="btn">新建文章</button>
-          <button id="btnRefreshNotes" class="btn secondary">刷新</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <input id="searchInput" type="search" placeholder="搜索文件名…" />
-          <button id="btnSearch" class="btn secondary">搜索</button>
-          <button id="btnClearSearch" class="btn secondary">清空</button>
+    <div class="dataFoot">
+      <div id="btnData" class="dataBtn">数据区</div>
+    </div>
+  </aside>
+
+  <!-- 右侧：顶部（账户区） + 内容区 -->
+  <section class="contentWrap">
+    <!-- 顶部两行：第一行账户名(下拉)；第二行按钮 -->
+    <div class="topbar">
+      <div class="topbarRow">
+        <div class="account">
+          <div id="accountBtn" class="accountBtn">未登录</div>
+          <div id="accountMenu" class="accountMenu">
+            <div id="menuLogout" class="item">退出登录</div>
+          </div>
         </div>
       </div>
+      <div class="actions">
+        <button id="btnRefresh" class="btn secondary">刷新</button>
+        <button id="btnToggleEdit" class="btn hidden">编辑</button>
+      </div>
+    </div>
 
-      <div class="section-title">笔记管理</div>
-      <ul class="list card" id="noteList" style="padding:6px;height:180px"></ul>
-      <div class="muted mono" id="listStateNotes" style="padding:0 6px"></div>
-
-      <!-- PDF 操作 -->
-      <div class="card" style="padding:10px;margin-top:8px">
-        <div class="row">
-          <input id="pdfFile" type="file" accept="application/pdf" class="hidden" />
-          <button id="btnPickPdf" class="btn">上传 PDF</button>
-          <button id="btnRefreshPdfs" class="btn secondary">刷新</button>
+    <!-- 内容区（大框） -->
+    <div id="contentCard" class="contentCard">
+      <!-- 笔记编辑/阅读 -->
+      <div id="noteBox">
+        <div class="toolbar">
+          <div class="row" style="align-items:center">
+            <input id="noteTitle" class="titleInput" placeholder="请输入标题…"/>
+            <span id="fileHint" class="muted"></span>
+          </div>
+          <div id="saveState" class="muted"></div>
         </div>
-        <div class="muted" style="margin-top:6px">也可把 PDF 拖到右侧区域上传</div>
+        <textarea id="noteContent" placeholder="内容区：支持 Markdown、粘贴/拖拽图片，保存到 COS"></textarea>
+        <div id="notePreview" class="preview"></div>
       </div>
 
-      <div class="section-title">PDF 管理</div>
-      <ul class="list card" id="pdfList" style="padding:6px;height:180px"></ul>
-      <div class="muted mono" id="listStatePdfs" style="padding:0 6px"></div>
-    </aside>
-
-    <!-- 右侧内容：笔记编辑器 / PDF 阅读器（自动切换） -->
-    <section class="editor card" id="editorCard">
-      <!-- 笔记工具条 -->
-      <div id="noteToolbar" class="toolbar">
-        <div class="row" style="align-items:center;gap:8px">
-          <input id="noteTitle" placeholder="请输入标题…" style="min-width:240px;width:360px" />
-          <span class="muted" id="fileHint"></span>
+      <!-- PDF 阅读器 -->
+      <div id="pdfBox" class="hidden">
+        <div class="pdf-toolbar">
+          <div>
+            <button id="pdfPrev" class="btn secondary">上一页</button>
+            <button id="pdfNext" class="btn secondary">下一页</button>
+            <span id="pdfInfo" class="muted">-/-</span>
+          </div>
+          <div>
+            <button id="pdfZoomOut" class="btn secondary">缩小</button>
+            <button id="pdfZoomIn" class="btn secondary">放大</button>
+            <a id="pdfOpenRaw" class="btn" target="_blank" href="#">打开原文件</a>
+          </div>
         </div>
-        <div class="muted" id="saveState"></div>
+        <div class="pdf-canvas-wrap"><canvas id="pdfCanvas"></canvas></div>
       </div>
 
-      <!-- 笔记正文 -->
-      <textarea id="noteContent" placeholder="在这里输入内容…（支持粘贴/拖拽图片，Markdown 预览）"></textarea>
-      <div id="notePreview" class="preview"></div>
-
-      <!-- PDF 工具条 -->
-      <div id="pdfToolbar" class="pdf-toolbar hidden">
-        <div class="pdf-controls">
-          <button id="pdfPrev" class="btn secondary">上一页</button>
-          <button id="pdfNext" class="btn secondary">下一页</button>
-          <span class="muted" id="pdfPageInfo">-/-</span>
-        </div>
-        <div class="pdf-controls">
-          <button id="pdfZoomOut" class="btn secondary">缩小</button>
-          <button id="pdfZoomIn" class="btn secondary">放大</button>
-          <a id="pdfOpenRaw" class="btn" target="_blank" href="#">打开原文件</a>
-        </div>
-      </div>
-      <div id="pdfCanvasWrap" class="pdf-canvas-wrap hidden">
-        <canvas id="pdfCanvas"></canvas>
-      </div>
-
-      <div id="emptyHint" class="muted" style="text-align:center;padding:20px">请选择左侧的笔记或 PDF；或新建/上传</div>
       <div id="dropMask" class="drop-mask">松开即可上传（图片或 PDF）到 COS</div>
-    </section>
-  </div>
+    </div>
+  </section>
 </div>
 
-<!-- 登录框 -->
-<div id="authModal" class="card hidden" style="position:fixed;inset:auto 16px 16px auto;max-width:680px;padding:14px;box-shadow:0 10px 30px rgb(0 0 0 / .1)">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-    <strong>登录 / 注册</strong>
-    <button id="btnCloseAuth" class="btn secondary">关闭</button>
+<!-- 数据区底部上弹菜单 -->
+<div id="dataSheet" class="sheet">
+  <div class="title">数据区</div>
+  <div class="grid">
+    <div id="optImportPdf" class="opt">导入 PDF</div>
+    <div id="optImportAll" class="opt">导入所有数据（ZIP）</div>
+    <div id="optExportAll" class="opt">导出所有数据（ZIP）</div>
   </div>
+  <div class="desc">导入所有数据：选择本地 zip（包含 .md/.txt），批量上传到 COS；导出所有数据：把你在 COS 的笔记打包下载。</div>
+</div>
+
+<!-- 隐藏的文件选择器 -->
+<input id="pickPdf" type="file" accept="application/pdf" class="hidden"/>
+<input id="pickZip" type="file" accept=".zip" class="hidden"/>
+
+<!-- 登录弹层（最简化，仅当你需要时再打开） -->
+<div id="authModal" class="sheet" style="min-width:420px">
+  <div class="title">登录 / 注册</div>
   <div class="row">
-    <input id="email" type="email" placeholder="邮箱" />
-    <input id="password" type="password" placeholder="密码（8-32位）" />
-    <input id="emailCode" placeholder="邮箱验证码（注册必填）" />
+    <input id="email" placeholder="邮箱" style="flex:1"/>
+    <input id="password" type="password" placeholder="密码" style="flex:1"/>
   </div>
   <div class="row" style="margin-top:8px">
-    <button id="btnSendCode" class="btn secondary">发送验证码（注册）</button>
-    <button id="btnSignUp" class="btn">注册</button>
-    <button id="btnSignIn" class="btn secondary">登录</button>
+    <button id="btnSignIn" class="btn" style="flex:1">登录</button>
+    <button id="btnSignUp" class="btn secondary" style="flex:1">注册</button>
+    <button id="btnCloseAuth" class="btn ghost" style="flex:1">关闭</button>
   </div>
-  <div class="mono muted" id="authState" style="margin-top:6px"></div>
+  <div id="authState" class="muted" style="margin-top:6px"></div>
 </div>
 
 <script>
-/* ========= 基本配置 ========= */
+/* ==== 0) 环境变量（按你的实际修改） ==== */
 const CLOUDBASE_ENV = "molijun-0gtahyghc6271173";
 const STS_URL       = "https://molijun-0gtahyghc6271173-1317231591.ap-shanghai.app.tcloudbase.com/api/sts";
 
-/* ========= SDK 初始化 ========= */
+/* ==== 1) SDK 初始化 ==== */
 const app  = cloudbase.init({ env: CLOUDBASE_ENV });
 const auth = app.auth();
-
-/* ========= DOM 快捷 ========= */
 const $ = id => document.getElementById(id);
 const ui = {
-  // 顶部
-  btnToggleEdit: $("btnToggleEdit"),
-  btnLogout: $("btnLogout"),
   // 左侧
-  accountEmail: $("accountEmail"),
-  accountUid: $("accountUid"),
-  btnOpenAuth: $("btnOpenAuth"),
-  btnCloseAuth: $("btnCloseAuth"),
-  btnNew: $("btnNew"),
-  btnRefreshNotes: $("btnRefreshNotes"),
-  searchInput: $("searchInput"),
-  btnSearch: $("btnSearch"),
-  btnClearSearch: $("btnClearSearch"),
   noteList: $("noteList"),
-  listStateNotes: $("listStateNotes"),
-  pdfFile: $("pdfFile"),
-  btnPickPdf: $("btnPickPdf"),
-  btnRefreshPdfs: $("btnRefreshPdfs"),
-  pdfList: $("pdfList"),
-  listStatePdfs: $("listStatePdfs"),
-  // 右侧（笔记）
-  editorCard: $("editorCard"),
-  noteToolbar: $("noteToolbar"),
+  noteListState: $("noteListState"),
+  btnNewNote: $("btnNewNote"),
+  btnNewFolder: $("btnNewFolder"),
+  btnData: $("btnData"),
+  // 顶部
+  accountBtn: $("accountBtn"),
+  accountMenu: $("accountMenu"),
+  menuLogout: $("menuLogout"),
+  btnRefresh: $("btnRefresh"),
+  btnToggleEdit: $("btnToggleEdit"),
+  // 内容区（笔记）
+  contentCard: $("contentCard"),
+  noteBox: $("noteBox"),
+  pdfBox: $("pdfBox"),
   noteTitle: $("noteTitle"),
-  noteContent: $("noteContent"),
-  notePreview: $("notePreview"),
   fileHint: $("fileHint"),
   saveState: $("saveState"),
-  // 右侧（PDF）
-  pdfToolbar: $("pdfToolbar"),
-  pdfPrev: $("pdfPrev"),
-  pdfNext: $("pdfNext"),
-  pdfZoomOut: $("pdfZoomOut"),
-  pdfZoomIn: $("pdfZoomIn"),
-  pdfPageInfo: $("pdfPageInfo"),
-  pdfOpenRaw: $("pdfOpenRaw"),
-  pdfCanvasWrap: $("pdfCanvasWrap"),
-  pdfCanvas: $("pdfCanvas"),
-  // 其他
-  emptyHint: $("emptyHint"),
+  noteContent: $("noteContent"),
+  notePreview: $("notePreview"),
   dropMask: $("dropMask"),
-  // 登录
+  // PDF
+  pdfPrev: $("pdfPrev"), pdfNext: $("pdfNext"),
+  pdfZoomOut: $("pdfZoomOut"), pdfZoomIn: $("pdfZoomIn"),
+  pdfInfo: $("pdfInfo"), pdfOpenRaw: $("pdfOpenRaw"),
+  pdfCanvas: $("pdfCanvas"),
+  // 数据区弹层
+  dataSheet: $("dataSheet"),
+  optImportPdf: $("optImportPdf"),
+  optImportAll: $("optImportAll"),
+  optExportAll: $("optExportAll"),
+  pickPdf: $("pickPdf"),
+  pickZip: $("pickZip"),
+  // 登录（简）
   authModal: $("authModal"),
-  email: $("email"), password: $("password"), emailCode: $("emailCode"),
-  btnSendCode: $("btnSendCode"), btnSignUp: $("btnSignUp"), btnSignIn: $("btnSignIn"),
+  email: $("email"), password: $("password"),
+  btnSignIn: $("btnSignIn"), btnSignUp: $("btnSignUp"), btnCloseAuth: $("btnCloseAuth"),
   authState: $("authState"),
 };
 
-/* ========= 全局状态 ========= */
+/* ==== 2) 全局状态 ==== */
 let currentUID = null;
 let latestNotes = [];
-let latestPdfs = [];
-let editing = false;
 let openedNoteKey = null;
-let openedPdf = { doc: null, url: null, page: 1, total: 0, scale: 1.15 };
+let editing = false;
 
+// PDF 状态
+let pdfDoc=null, pdfUrl=null, pdfPage=1, pdfTotal=0, pdfScale=1.15;
+
+/* ==== 3) 工具 ==== */
 function pad2(n){return n<10?("0"+n):""+n}
-function ts(){
-  const d = new Date();
-  return d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"_"+pad2(d.getHours())+pad2(d.getMinutes())+pad2(d.getSeconds());
+function ts(){ const d=new Date(); return d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"_"+pad2(d.getHours())+pad2(d.getMinutes())+pad2(d.getSeconds());}
+function sanitizeFileName(s){ return (s||"未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,80); }
+function renderPreview(){ ui.notePreview.innerHTML = DOMPurify.sanitize(marked.parse(ui.noteContent.value||"")); }
+function highlightActive(key){
+  [...ui.noteList.children].forEach(li=> li.classList.toggle("active", li.dataset.key===key));
 }
 
-/* ========= 登录 ========= */
-function setAuthUI(st){
-  const uid = st?.user?.uid || null;
-  const email = st?.user?.email || "";
-  currentUID = uid;
-  ui.accountEmail.textContent = email || "（未取到邮箱）";
-  ui.accountUid.textContent = uid ? ("UID: " + uid) : "";
-  ui.btnLogout.classList.toggle("hidden", !uid);
-  ui.btnOpenAuth.classList.toggle("hidden", !!uid);
-  if(uid){ refreshNotes(); refreshPdfs(); }
+/* ==== 4) 认证（演示：邮箱+密码） ==== */
+async function ensureLogin(){
+  const st = await auth.getLoginState();
+  if(!st?.user) throw new Error("尚未登录");
+  return st.user;
 }
-ui.btnOpenAuth.onclick = ()=> ui.authModal.classList.remove("hidden");
-ui.btnCloseAuth.onclick = ()=> ui.authModal.classList.add("hidden");
-
-ui.btnSendCode.onclick = async ()=>{
-  const email = ui.email.value.trim(); if(!email) return alert("请输入邮箱");
-  ui.authState.textContent = "发送验证码…";
+// 初始尝试获取登录状态
+(async ()=>{
   try{
-    const v = await auth.getVerification({ email });
-    ui.email.dataset.verification_id = v.verification_id;
-    ui.authState.textContent = "验证码已发送（10分钟有效）";
-  }catch(e){ ui.authState.textContent = "失败：" + (e?.message || e); }
+    const st = await auth.getLoginState();
+    if(st?.user){ currentUID = st.user.uid; ui.accountBtn.textContent = st.user.email || st.user.uid; refreshNotes(); }
+    else{ currentUID = null; ui.accountBtn.textContent = "未登录"; openAuthSheet(); }
+  }catch{}
+})();
+
+// 登录/注册 UI
+function openAuthSheet(){ ui.authModal.classList.add("open"); }
+ui.btnCloseAuth.onclick = ()=> ui.authModal.classList.remove("open");
+ui.btnSignIn.onclick = async ()=>{
+  try{
+    const st = await auth.signIn({ username: ui.email.value.trim(), password: ui.password.value.trim() });
+    currentUID = st.user.uid; ui.accountBtn.textContent = st.user.email || st.user.uid;
+    ui.authState.textContent = "登录成功"; ui.authModal.classList.remove("open"); refreshNotes();
+  }catch(e){ ui.authState.textContent = "登录失败：" + (e?.message||e); }
 };
 ui.btnSignUp.onclick = async ()=>{
-  const email = ui.email.value.trim(), pwd = ui.password.value.trim();
-  const code = ui.emailCode.value.trim(), vid = ui.email.dataset.verification_id;
-  if(!email||!pwd||!code||!vid) return alert("请完整填写并先取验证码");
-  ui.authState.textContent = "注册中…";
   try{
-    const verified = await auth.verify({ verification_id: vid, verification_code: code });
-    const st = await auth.signUp({ email, verification_code: code, verification_token: verified.verification_token, password: pwd });
-    setAuthUI(st); ui.authModal.classList.add("hidden");
-  }catch(e){ ui.authState.textContent = "失败：" + (e?.message || e); }
+    // 若未开通验证码，此处示例简单用 signUp(email+password) 方案；生产环境建议走邮箱验证码注册
+    const st = await auth.signUp({ username: ui.email.value.trim(), password: ui.password.value.trim() });
+    currentUID = st.user.uid; ui.accountBtn.textContent = st.user.email || st.user.uid;
+    ui.authState.textContent = "注册成功"; ui.authModal.classList.remove("open"); refreshNotes();
+  }catch(e){ ui.authState.textContent = "注册失败：" + (e?.message||e); }
 };
-ui.btnSignIn.onclick = async ()=>{
-  const email = ui.email.value.trim(), pwd = ui.password.value.trim();
-  if(!email||!pwd) return alert("请输入邮箱与密码");
-  ui.authState.textContent = "登录中…";
-  try{ const st = await auth.signIn({ username: email, password: pwd }); setAuthUI(st); ui.authModal.classList.add("hidden"); }
-  catch(e){ ui.authState.textContent = "失败：" + (e?.message || e); }
+// 账户下拉
+ui.accountBtn.onclick = ()=> ui.accountMenu.classList.toggle("open");
+document.addEventListener("click",(e)=>{
+  if(!ui.accountBtn.contains(e.target) && !ui.accountMenu.contains(e.target)) ui.accountMenu.classList.remove("open");
+});
+ui.menuLogout.onclick = async ()=>{
+  try{ await auth.signOut(); currentUID=null; ui.accountBtn.textContent="未登录"; ui.noteList.innerHTML=""; ui.noteContent.value=""; ui.notePreview.innerHTML=""; }
+  catch(e){ alert("退出失败："+(e?.message||e)); }
 };
-ui.btnLogout.onclick = async ()=>{ try{ await auth.signOut(); setAuthUI(null); clearNoteUI(); clearPdfUI(); }catch(e){ alert("退出失败："+e); } };
-(async ()=>{ try{ const st = await auth.getLoginState(); if(st) setAuthUI(st); }catch{} })();
 
-/* ========= STS / COS ========= */
-let stsCache = null, cos = null;
-async function ensureLogin(){ const st = await auth.getLoginState(); if(!st?.user) throw new Error("尚未登录"); return st.user; }
+/* ==== 5) STS & COS ==== */
+let stsCache=null, cos=null;
 async function fetchSTS(uid){
-  const r = await fetch(`${STS_URL}?uid=${encodeURIComponent(uid)}`, { headers:{ "x-user-uid": uid } });
+  const r = await fetch(`${STS_URL}?uid=${encodeURIComponent(uid)}`,{ headers:{ "x-user-uid": uid }});
   if(!r.ok) throw new Error("STS 获取失败");
-  const j = await r.json(); if(!j?.credentials?.tmpSecretId) throw new Error("STS 响应不完整"); return j;
+  const j = await r.json();
+  if(!j?.credentials?.tmpSecretId) throw new Error("STS 响应不完整");
+  return j;
 }
 async function ensureCOS(){
   const { uid } = await ensureLogin();
   const now = Math.floor(Date.now()/1000);
-  if(!stsCache || !stsCache.expiredTime || (now + 60) >= Number(stsCache.expiredTime)){
+  if(!stsCache || !stsCache.expiredTime || (now+60)>=Number(stsCache.expiredTime)){
     stsCache = await fetchSTS(uid);
-    cos = new COS({
-      getAuthorization: (_, cb) => {
-        const c = stsCache.credentials;
-        cb({ TmpSecretId:c.tmpSecretId, TmpSecretKey:c.tmpSecretKey, SecurityToken:c.sessionToken,
-             StartTime:Number(stsCache.startTime), ExpiredTime:Number(stsCache.expiredTime) });
-      }
-    });
+    cos = new COS({ getAuthorization:(_,cb)=> {
+      const c = stsCache.credentials;
+      cb({ TmpSecretId:c.tmpSecretId, TmpSecretKey:c.tmpSecretKey, SecurityToken:c.sessionToken,
+           StartTime:Number(stsCache.startTime), ExpiredTime:Number(stsCache.expiredTime) });
+    }});
   }
   return { cos, bucket: stsCache.bucket, region: stsCache.region, uid };
 }
 
-/* ========= 笔记：列表/打开/保存 ========= */
-function clearNoteUI(){
-  openedNoteKey = null; editing = false;
-  ui.noteTitle.value = ""; ui.noteContent.value = ""; ui.notePreview.innerHTML = "";
-  ui.fileHint.textContent = ""; ui.btnToggleEdit.classList.add("hidden");
-  ui.saveState.textContent = ""; ui.emptyHint.classList.remove("hidden");
-}
-function renderNotePreview(){ ui.notePreview.innerHTML = DOMPurify.sanitize(marked.parse(ui.noteContent.value||"")); }
-
+/* ==== 6) 列表/打开/保存 ==== */
 async function refreshNotes(){
-  ui.listStateNotes.textContent = "加载中…";
+  ui.noteListState.textContent = "加载中…"; ui.noteList.innerHTML = "";
   try{
     const { cos, bucket, region, uid } = await ensureCOS();
-    const prefix = `${uid}/`;
-    const data = await new Promise((res,rej)=> cos.getBucket({Bucket:bucket,Region:region,Prefix:prefix,MaxKeys:1000},(e,d)=>e?rej(e):res(d)));
-    latestNotes = (data?.Contents||[]).filter(o=>o.Key.endsWith(".txt") || o.Key.endsWith(".md"))
-                  .sort((a,b)=> new Date(b.LastModified)-new Date(a.LastModified));
-    ui.noteList.innerHTML = "";
-    for(const o of latestNotes){
-      const name = o.Key.split("/").pop();
-      const li = document.createElement("li");
-      const meta = document.createElement("div");
-      meta.className="meta"; meta.innerHTML = `<span class="name mono">${name}</span><span class="time">${new Date(o.LastModified).toLocaleString()}</span>`;
-      const ops = document.createElement("div"); ops.className="ops";
-      const bOpen = document.createElement("button"); bOpen.className="btn secondary"; bOpen.textContent="打开";
-      bOpen.onclick = ()=> openNote(o);
-      const bDel = document.createElement("button"); bDel.className="btn danger"; bDel.textContent="删除";
-      bDel.onclick = ()=> delObject(o.Key);
-      ops.append(bOpen,bDel); li.append(meta,ops); ui.noteList.appendChild(li);
+    const data = await new Promise((res,rej)=> cos.getBucket({Bucket:bucket,Region:region,Prefix:`${uid}/`,MaxKeys:1000},(e,d)=>e?rej(e):res(d)));
+    latestNotes = (data?.Contents||[]).filter(o=>o.Key.endsWith(".md") || o.Key.endsWith(".txt"))
+                   .sort((a,b)=> new Date(b.LastModified)-new Date(a.LastModified));
+    if(!latestNotes.length){ ui.noteList.innerHTML = "<li class='muted' style='padding:12px'>暂无笔记</li>"; }
+    else{
+      for(const o of latestNotes){
+        const li = document.createElement("li");
+        li.className = "noteItem"; li.dataset.key = o.Key;
+        const name = o.Key.split("/").pop();
+        li.innerHTML = `<div class="name mono">${name}</div><button class="btn secondary open">打开</button>`;
+        li.onclick = (ev)=>{ if(ev.target.classList.contains("open")) openNote(o); else openNote(o); };
+        ui.noteList.appendChild(li);
+      }
     }
-    ui.listStateNotes.textContent = `共 ${latestNotes.length} 篇`;
-  }catch(e){ ui.listStateNotes.textContent = "失败：" + (e?.message||e); }
+    ui.noteListState.textContent = `共 ${latestNotes.length} 篇`;
+  }catch(e){ ui.noteListState.textContent = "失败：" + (e?.message||e); }
 }
 async function openNote(obj){
   try{
-    const { cos, bucket, region } = await ensureCOS();
-    const data = await new Promise((res,rej)=> cos.getObject({Bucket:bucket,Region:region,Key:obj.Key},(e,d)=>e?rej(e):res(d)));
-    const body = data.Body instanceof Blob ? await data.Body.text() : (typeof data.Body==="string"?data.Body:new TextDecoder().decode(data.Body));
-    const name = obj.Key.split("/").pop();
-    openedNoteKey = obj.Key; editing=false;
-    ui.noteTitle.value = name.replace(/\.(txt|md)$/i,"");
-    ui.noteContent.value = body||""; ui.noteContent.readOnly = true;
-    ui.fileHint.textContent = name; ui.btnToggleEdit.textContent="编辑"; ui.btnToggleEdit.classList.remove("hidden");
-    ui.emptyHint.classList.add("hidden");
     showNoteUI();
-    renderNotePreview();
+    const { cos, bucket, region } = await ensureCOS();
+    const d = await new Promise((res,rej)=> cos.getObject({Bucket:bucket,Region:region,Key:obj.Key},(e,r)=>e?rej(e):res(r)));
+    const text = d.Body instanceof Blob ? await d.Body.text() : (typeof d.Body==="string"?d.Body:new TextDecoder().decode(d.Body));
+    openedNoteKey = obj.Key; editing=false;
+    const name = obj.Key.split("/").pop();
+    ui.noteTitle.value = name.replace(/\.(md|txt)$/i,""); ui.fileHint.textContent = name;
+    ui.noteContent.value = text || ""; ui.noteContent.readOnly = true;
+    ui.btnToggleEdit.textContent = "编辑"; ui.btnToggleEdit.classList.remove("hidden");
+    highlightActive(obj.Key); renderPreview(); ui.saveState.textContent = "";
   }catch(e){ alert("读取失败："+(e?.message||e)); }
 }
-ui.btnNew.onclick = ()=>{ openedNoteKey=null; editing=true; showNoteUI(); ui.noteTitle.value=""; ui.noteContent.value=""; ui.noteContent.readOnly=false; ui.btnToggleEdit.textContent="保存"; ui.btnToggleEdit.classList.remove("hidden"); ui.emptyHint.classList.add("hidden"); renderNotePreview(); };
+ui.btnNewNote.onclick = ()=>{
+  openedNoteKey=null; editing=true; showNoteUI(); ui.noteTitle.value=""; ui.noteContent.value="";
+  ui.noteContent.readOnly=false; ui.btnToggleEdit.textContent="保存"; ui.btnToggleEdit.classList.remove("hidden");
+  highlightActive(""); renderPreview();
+};
 ui.btnToggleEdit.onclick = async ()=>{
   if(!editing){ editing=true; ui.noteContent.readOnly=false; ui.btnToggleEdit.textContent="保存"; return; }
-  ui.saveState.textContent="保存中…";
+  ui.saveState.textContent = "保存中…";
   try{
     const { cos, bucket, region, uid } = await ensureCOS();
     let key = openedNoteKey;
     if(!key){
-      const safe = (ui.noteTitle.value||"未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,60);
+      const safe = sanitizeFileName(ui.noteTitle.value);
       key = `${uid}/${ts()}_${safe}.md`;
     }
     const blob = new Blob([ui.noteContent.value||""],{type:"text/markdown;charset=utf-8"});
     await new Promise((res,rej)=> cos.putObject({Bucket:bucket,Region:region,Key:key,Body:blob},(e,d)=>e?rej(e):res(d)));
     openedNoteKey = key; editing=false; ui.noteContent.readOnly=true; ui.btnToggleEdit.textContent="编辑";
-    ui.saveState.textContent="已保存"; refreshNotes();
-  }catch(e){ ui.saveState.textContent="失败："+(e?.message||e); }
+    ui.saveState.textContent = "已保存"; ui.fileHint.textContent = key.split("/").pop(); refreshNotes(); highlightActive(key);
+  }catch(e){ ui.saveState.textContent = "失败：" + (e?.message||e); }
 };
-ui.noteContent.addEventListener("input", renderNotePreview);
-ui.btnRefreshNotes.onclick = ()=> refreshNotes();
-ui.btnSearch.onclick = ()=>{
-  const kw = ui.searchInput.value.trim().toLowerCase();
-  const list = !kw? latestNotes : latestNotes.filter(o=>o.Key.toLowerCase().includes(kw));
-  renderSimpleList(ui.noteList, list, openNote); ui.listStateNotes.textContent = `过滤后 ${list.length} 条`;
-};
-ui.btnClearSearch.onclick = ()=>{ ui.searchInput.value=""; renderSimpleList(ui.noteList, latestNotes, openNote); ui.listStateNotes.textContent=`共 ${latestNotes.length} 条`; };
+ui.btnRefresh.onclick = ()=> { refreshNotes(); };
 
-/* ========= PDF：列表/上传/阅读 ========= */
-function clearPdfUI(){
-  openedPdf = { doc:null,url:null,page:1,total:0,scale:1.15 };
-  ui.pdfToolbar.classList.add("hidden"); ui.pdfCanvasWrap.classList.add("hidden");
-}
-function showNoteUI(){ // 切换到笔记界面
-  ui.noteToolbar.classList.remove("hidden");
-  ui.noteContent.classList.remove("hidden");
-  ui.notePreview.classList.remove("hidden");
-  ui.pdfToolbar.classList.add("hidden");
-  ui.pdfCanvasWrap.classList.add("hidden");
-}
-function showPdfUI(){ // 切换到 PDF 界面
-  ui.noteToolbar.classList.add("hidden");
-  ui.noteContent.classList.add("hidden");
-  ui.notePreview.classList.add("hidden");
-  ui.pdfToolbar.classList.remove("hidden");
-  ui.pdfCanvasWrap.classList.remove("hidden");
-}
-async function refreshPdfs(){
-  ui.listStatePdfs.textContent = "加载中…";
+/* 新建文件夹（创建一个占位 .keep） */
+ui.btnNewFolder.onclick = async ()=>{
+  const name = prompt("请输入文件夹名称");
+  if(!name) return;
   try{
     const { cos, bucket, region, uid } = await ensureCOS();
-    const prefix = `${uid}/assets/pdf/`;
-    const data = await new Promise((res,rej)=> cos.getBucket({Bucket:bucket,Region:region,Prefix:prefix,MaxKeys:1000},(e,d)=>e?rej(e):res(d)));
-    latestPdfs = (data?.Contents||[]).filter(o=>o.Key.toLowerCase().endsWith(".pdf"))
-                 .sort((a,b)=> new Date(b.LastModified)-new Date(a.LastModified));
-    renderSimpleList(ui.pdfList, latestPdfs, openPdf);
-    ui.listStatePdfs.textContent = `共 ${latestPdfs.length} 个`;
-  }catch(e){ ui.listStatePdfs.textContent = "失败：" + (e?.message||e); }
+    const key = `${uid}/${sanitizeFileName(name)}/.keep`;
+    const blob = new Blob([], {type:"text/plain"});
+    await new Promise((res,rej)=> cos.putObject({Bucket:bucket,Region:region,Key:key,Body:blob},(e,d)=>e?rej(e):res(d)));
+    alert("已创建文件夹：" + name);
+  }catch(e){ alert("创建失败：" + (e?.message||e)); }
+};
+
+/* ==== 7) Markdown 预览 & 粘贴/拖拽图片 ==== */
+ui.noteContent.addEventListener("input", renderPreview);
+
+// 拖拽（图片/PDF）
+["dragenter","dragover"].forEach(ev=> ui.contentCard.addEventListener(ev, e=>{ e.preventDefault(); ui.contentCard.classList.add("dragover"); }));
+["dragleave","drop"].forEach(ev=> ui.contentCard.addEventListener(ev, e=>{ e.preventDefault(); if(ev==="drop") onDrop(e); ui.contentCard.classList.remove("dragover"); }));
+async function onDrop(e){
+  const files = Array.from(e.dataTransfer?.files||[]);
+  const imgs = files.filter(f=> f.type.startsWith("image/"));
+  const pdfs = files.filter(f=> f.type==="application/pdf");
+  if(imgs.length) await handleImageFiles(imgs);
+  if(pdfs.length) await handlePdfFiles(pdfs);
 }
-function renderSimpleList(target, objs, openFn){
-  target.innerHTML="";
-  if(!objs.length){ target.innerHTML="<li class='muted' style='padding:12px'>暂无文件</li>"; return; }
-  for(const o of objs){
-    const name = o.Key.split("/").pop();
-    const li = document.createElement("li");
-    const meta = document.createElement("div"); meta.className="meta";
-    meta.innerHTML=`<span class="name mono">${name}</span><span class="time">${new Date(o.LastModified).toLocaleString()}</span>`;
-    const ops = document.createElement("div"); ops.className="ops";
-    const bOpen = document.createElement("button"); bOpen.className="btn secondary"; bOpen.textContent="打开";
-    bOpen.onclick = ()=> openFn(o);
-    const bDown = document.createElement("button"); bDown.className="btn secondary"; bDown.textContent="下载";
-    bDown.onclick = async ()=>{
-      const { bucket, region } = stsCache || {}; if(!bucket) return;
-      const url = await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:o.Key,Sign:true},(e,r)=>e?rej(e):res(r.Url)));
-      window.open(url,"_blank");
-    };
-    const bDel = document.createElement("button"); bDel.className="btn danger"; bDel.textContent="删除";
-    bDel.onclick = ()=> delObject(o.Key);
-    ops.append(bOpen,bDown,bDel); li.append(meta,ops); target.appendChild(li);
+// 粘贴图片
+ui.noteContent.addEventListener("paste", async e=>{
+  const items = e.clipboardData?.items ? Array.from(e.clipboardData.items):[];
+  const imgs = items.filter(it=> it.kind==="file" && it.type.startsWith("image/"));
+  if(!imgs.length) return;
+  e.preventDefault();
+  const files = await Promise.all(imgs.map(it=> it.getAsFile())); await handleImageFiles(files.filter(Boolean));
+});
+
+const IMAGE_MAX = 20*1024*1024;
+async function handleImageFiles(files){
+  const { cos, bucket, region, uid } = await ensureCOS();
+  for(const f of files){
+    if(!f.type.startsWith("image/")) continue;
+    if(f.size>IMAGE_MAX){ ui.saveState.textContent=`图片过大：${f.name}`; continue; }
+    const ext = (f.name.split(".").pop()||"png").toLowerCase();
+    const key = `${uid}/assets/${new Date().getFullYear()}/${pad2(new Date().getMonth()+1)}/${ts()}_${sanitizeFileName(ui.noteTitle.value)}.${ext}`;
+    await new Promise((res,rej)=> cos.uploadFile({Bucket:bucket,Region:region,Key:key,Body:f,SliceSize:1024*1024,onProgress:p=>ui.saveState.textContent=`上传中 ${f.name} ${(p.percent*100).toFixed(1)}%`},(e,d)=>e?rej(e):res(d)));
+    const url = await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:key,Sign:true},(e,r)=>e?rej(e):res(r.Url)));
+    // 自动切到编辑态并插入
+    editing = true; ui.noteContent.readOnly=false; ui.btnToggleEdit.textContent="保存"; ui.btnToggleEdit.classList.remove("hidden");
+    insertAtCursor(ui.noteContent, `\n![](${url})\n`); renderPreview();
+    ui.saveState.textContent = `图片已上传并插入：${f.name}`;
   }
 }
-async function delObject(key){
-  if(!confirm(`确定删除：${key.split("/").pop()} ?`)) return;
-  try{ const { cos, bucket, region } = await ensureCOS(); await new Promise((res,rej)=> cos.deleteObject({Bucket:bucket,Region:region,Key:key},(e,d)=>e?rej(e):res(d))); refreshNotes(); refreshPdfs(); }
-  catch(e){ alert("删除失败："+(e?.message||e)); }
-}
+function insertAtCursor(el,text){ const s=el.selectionStart??el.value.length,e=el.selectionEnd??el.value.length; el.value=el.value.slice(0,s)+text+el.value.slice(e); el.selectionStart=el.selectionEnd=s+text.length; el.focus(); }
 
-/* 上传 PDF（按钮/拖拽） */
-ui.btnPickPdf.onclick = ()=> ui.pdfFile.click();
-ui.pdfFile.onchange = async (e)=>{ const f = e.target.files?.[0]; if(f) await handlePdfFiles([f]); e.target.value=""; };
-
-["dragenter","dragover"].forEach(ev=> ui.editorCard.addEventListener(ev, e=>{ e.preventDefault(); ui.dropMask.style.display="flex"; }));
-["dragleave","drop"].forEach(ev=> ui.editorCard.addEventListener(ev, e=>{ e.preventDefault(); if(ev==="drop") onDrop(e); ui.dropMask.style.display="none"; }));
-async function onDrop(e){
-  const files = Array.from(e.dataTransfer?.files || []);
-  const imgs = files.filter(f=> f.type.startsWith("image/"));
-  const pdfs = files.filter(f=> f.type === "application/pdf");
-  if(pdfs.length) await handlePdfFiles(pdfs);
-  if(imgs.length) await handleImageFiles(imgs); // 复用你原先的图片上传逻辑（见下）
-}
-
-/* 实际上传到 COS：使用 uploadFile，高级接口支持分片与进度。:contentReference[oaicite:3]{index=3} */
+/* ==== 8) PDF 上传/阅读 ==== */
 async function handlePdfFiles(files){
   for(const f of files){
-    if(f.type!=="application/pdf"){ ui.saveState.textContent=`跳过非 PDF：${f.name}`; continue; }
-    try{
-      const url = await uploadPdfToCOS(f);
-      ui.saveState.textContent = `PDF 上传成功：${f.name}`;
-      await refreshPdfs();
-      // 上传后直接打开阅读
-      const last = latestPdfs[0];
-      if(last) openPdf(last);
-    }catch(e){ ui.saveState.textContent = `上传失败：${e?.message||e}`; }
+    if(f.type!=="application/pdf") continue;
+    const url = await uploadPdfToCOS(f);
+    ui.saveState.textContent = `PDF 上传成功：${f.name}`;
+    // 打开阅读
+    await openPdfByUrl(url);
   }
 }
 async function uploadPdfToCOS(file){
   const { cos, bucket, region, uid } = await ensureCOS();
-  const y = new Date().getFullYear(), m = pad2(new Date().getMonth()+1);
-  const base = (file.name.replace(/\.pdf$/i,"") || "未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,64);
-  const key = `${uid}/assets/pdf/${y}/${m}/${ts()}_${base}.pdf`;
-  await new Promise((res,rej)=> cos.uploadFile({
-      Bucket:bucket,Region:region,Key:key,Body:file,SliceSize:1024*1024,
-      onProgress:p=> ui.saveState.textContent=`上传中 ${file.name} ${(p.percent*100).toFixed(1)}%`
-  },(e,d)=> e?rej(e):res(d)));
-  const url = await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:key,Sign:true},(e,r)=>e?rej(e):res(r.Url)));
-  return url;
+  const key = `${uid}/assets/pdf/${new Date().getFullYear()}/${pad2(new Date().getMonth()+1)}/${ts()}_${sanitizeFileName(file.name.replace(/\.pdf$/i,""))}.pdf`;
+  await new Promise((res,rej)=> cos.uploadFile({Bucket:bucket,Region:region,Key:key,Body:file,SliceSize:1024*1024,onProgress:p=>ui.saveState.textContent=`上传 PDF ${(p.percent*100).toFixed(1)}%`},(e,d)=>e?rej(e):res(d)));
+  return await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:key,Sign:true},(e,r)=>e?rej(e):res(r.Url)));
 }
-
-/* 打开 PDF（使用 PDF.js 渲染）。用法来自官方首页/示例：getDocument().promise -> doc.getPage(page).render()。:contentReference[oaicite:4]{index=4} */
-async function openPdf(obj){
+function showNoteUI(){ ui.noteBox.classList.remove("hidden"); ui.pdfBox.classList.add("hidden"); }
+function showPdfUI(){ ui.noteBox.classList.add("hidden"); ui.pdfBox.classList.remove("hidden"); }
+async function openPdfByUrl(signedUrl){
   try{
-    const { bucket, region } = stsCache || await ensureCOS();
-    const signedUrl = await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:obj.Key,Sign:true},(e,r)=>e?rej(e):res(r.Url)));
-    openedPdf.url = signedUrl; ui.pdfOpenRaw.href = signedUrl;
-
-    // 切到 PDF 界面
-    showPdfUI(); ui.emptyHint.classList.add("hidden");
-    ui.saveState.textContent = "加载 PDF…";
-
-    // 加载文档
-    const loadingTask = pdfjsLib.getDocument({ url: signedUrl });
-    openedPdf.doc = await loadingTask.promise;
-    openedPdf.total = openedPdf.doc.numPages;
-    openedPdf.page = 1; openedPdf.scale = 1.15;
-    ui.pdfPageInfo.textContent = `1 / ${openedPdf.total}`;
-    await renderPdfPage();
-
-    ui.saveState.textContent = "";
-  }catch(e){ ui.saveState.textContent = "PDF 加载失败：" + (e?.message || e); }
+    showPdfUI(); pdfUrl = signedUrl; ui.pdfOpenRaw.href = signedUrl;
+    const task = pdfjsLib.getDocument({ url:signedUrl }); // 官方示例方式加载并渲染 PDF。:contentReference[oaicite:4]{index=4}
+    pdfDoc = await task.promise; pdfTotal = pdfDoc.numPages; pdfPage = 1; pdfScale = 1.15;
+    await renderPdfPage(); ui.saveState.textContent="";
+  }catch(e){ ui.saveState.textContent="PDF 加载失败："+(e?.message||e); }
 }
 async function renderPdfPage(){
-  if(!openedPdf.doc) return;
-  const page = await openedPdf.doc.getPage(openedPdf.page);
-  const viewport = page.getViewport({ scale: openedPdf.scale });
+  if(!pdfDoc) return;
+  const page = await pdfDoc.getPage(pdfPage);
+  const viewport = page.getViewport({ scale: pdfScale });
   const canvas = ui.pdfCanvas, ctx = canvas.getContext("2d");
   canvas.width = viewport.width; canvas.height = viewport.height;
   await page.render({ canvasContext: ctx, viewport }).promise;
-  ui.pdfPageInfo.textContent = `${openedPdf.page} / ${openedPdf.total}`;
+  ui.pdfInfo.textContent = `${pdfPage} / ${pdfTotal}`;
 }
-ui.pdfPrev.onclick = async ()=>{ if(openedPdf.page>1){ openedPdf.page--; await renderPdfPage(); } };
-ui.pdfNext.onclick = async ()=>{ if(openedPdf.page<openedPdf.total){ openedPdf.page++; await renderPdfPage(); } };
-ui.pdfZoomIn.onclick = async ()=>{ openedPdf.scale = Math.min(3, openedPdf.scale+0.15); await renderPdfPage(); };
-ui.pdfZoomOut.onclick = async ()=>{ openedPdf.scale = Math.max(0.5, openedPdf.scale-0.15); await renderPdfPage(); };
+ui.pdfPrev.onclick = ()=>{ if(pdfPage>1){ pdfPage--; renderPdfPage(); } };
+ui.pdfNext.onclick = ()=>{ if(pdfPage<pdfTotal){ pdfPage++; renderPdfPage(); } };
+ui.pdfZoomIn.onclick = ()=>{ pdfScale = Math.min(3, pdfScale+0.15); renderPdfPage(); };
+ui.pdfZoomOut.onclick = ()=>{ pdfScale = Math.max(0.5, pdfScale-0.15); renderPdfPage(); };
 
-/* ========= 图片上传（沿用你之前的功能，便于拖拽混用） ========= */
-const IMAGE_MAX = 20*1024*1024;
-const ACCEPT_IMG = ["image/png","image/jpeg","image/gif","image/webp","image/svg+xml"];
-async function handleImageFiles(files){
-  for(const f of files){
-    if(!ACCEPT_IMG.includes(f.type)){ ui.saveState.textContent=`跳过不支持的图片类型：${f.type}`; continue; }
-    if(f.size>IMAGE_MAX){ ui.saveState.textContent=`图片过大：${f.name}`; continue; }
-    try{
-      const url = await uploadImageToCOS(f);
-      // 切回笔记编辑态并插入
-      showNoteUI(); openedNoteKey ??= null; editing = true; ui.noteContent.readOnly=false; ui.btnToggleEdit.textContent="保存"; ui.btnToggleEdit.classList.remove("hidden");
-      insertAtCursor(ui.noteContent, `\n![](${url})\n`); renderNotePreview();
-      ui.saveState.textContent = `图片已上传并插入：${f.name}`;
-    }catch(e){ ui.saveState.textContent = `图片上传失败：${e?.message||e}`; }
-  }
-}
-async function uploadImageToCOS(file){
-  const { cos, bucket, region, uid } = await ensureCOS();
-  const ext = (file.name.split(".").pop()||"png").toLowerCase();
-  const key = `${uid}/assets/${new Date().getFullYear()}/${pad2(new Date().getMonth()+1)}/${ts()}_${(ui.noteTitle.value||"未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,40)}.${ext}`;
-  await new Promise((res,rej)=> cos.uploadFile({Bucket:bucket,Region:region,Key:key,Body:file,SliceSize:1024*1024,onProgress:p=>ui.saveState.textContent=`上传中 ${file.name} ${(p.percent*100).toFixed(1)}%`},(e,d)=>e?rej(e):res(d)));
-  return await new Promise((res,rej)=> cos.getObjectUrl({Bucket:bucket,Region:region,Key:key,Sign:true},(e,r)=>e?rej(e):res(r.Url)));
-}
-function insertAtCursor(el, text){
-  const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? el.value.length;
-  el.value = el.value.slice(0,s) + text + el.value.slice(e);
-  el.selectionStart = el.selectionEnd = s + text.length; el.focus();
-}
+/* ==== 9) 数据区：导入/导出 ==== */
+ui.btnData.onclick = ()=> ui.dataSheet.classList.toggle("open");
+ui.optImportPdf.onclick = ()=> ui.pickPdf.click();
+ui.pickPdf.onchange = async e=>{ const f=e.target.files?.[0]; if(f){ await handlePdfFiles([f]); } e.target.value=""; };
 
-/* ========= 初始化 ========= */
-(async ()=>{ try{ const st = await auth.getLoginState(); if(st) setAuthUI(st); }catch{} })();
+ui.optImportAll.onclick = ()=> ui.pickZip.click();
+ui.pickZip.onchange = async e=>{
+  const f = e.target.files?.[0]; if(!f) return; ui.saveState.textContent="解析 zip 中…";
+  try{
+    const zip = await JSZip.loadAsync(f); // 读取 zip。:contentReference[oaicite:5]{index=5}
+    const entries = Object.values(zip.files).filter(z=> !z.dir && (z.name.endsWith(".md")||z.name.endsWith(".txt")));
+    const { cos, bucket, region, uid } = await ensureCOS();
+    let done=0;
+    for(const ent of entries){
+      const text = await ent.async("string");
+      const key = `${uid}/imported/${sanitizeFileName(ent.name.replace(/^.*\//,""))}`;
+      await new Promise((res,rej)=> cos.putObject({Bucket:bucket,Region:region,Key:key,Body:new Blob([text],{type:"text/plain;charset=utf-8"})},(e,d)=>e?rej(e):res(d)));
+      ui.saveState.textContent = `导入中 ${++done}/${entries.length}`;
+    }
+    ui.saveState.textContent = `导入完成，共 ${entries.length} 篇`; refreshNotes();
+  }catch(err){ ui.saveState.textContent="导入失败："+(err?.message||err); }
+  e.target.value="";
+};
+
+ui.optExportAll.onclick = async ()=>{
+  try{
+    ui.saveState.textContent = "打包中…";
+    const { cos, bucket, region, uid } = await ensureCOS();
+    // 取所有笔记
+    const data = await new Promise((res,rej)=> cos.getBucket({Bucket:bucket,Region:region,Prefix:`${uid}/`,MaxKeys:1000},(e,d)=>e?rej(e):res(d)));
+    const notes = (data?.Contents||[]).filter(o=>o.Key.endsWith(".md")||o.Key.endsWith(".txt"));
+    const zip = new JSZip();
+    let idx=0;
+    for(const o of notes){
+      const obj = await new Promise((res,rej)=> cos.getObject({Bucket:bucket,Region:region,Key:o.Key},(e,r)=>e?rej(e):res(r)));
+      const text = obj.Body instanceof Blob ? await obj.Body.text() : (typeof obj.Body==="string"?obj.Body:new TextDecoder().decode(obj.Body));
+      const name = o.Key.split("/").pop();
+      zip.file(name, text);
+      ui.saveState.textContent = `打包 ${++idx}/${notes.length}`;
+    }
+    const blob = await zip.generateAsync({ type:"blob", compression:"DEFLATE" }); // 生成 zip。:contentReference[oaicite:6]{index=6}
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `notes_export_${ts()}.zip`; a.click();
+    URL.revokeObjectURL(a.href); ui.saveState.textContent = "已导出";
+  }catch(e){ ui.saveState.textContent = "导出失败："+(e?.message||e); }
+};
+
+/* ==== 10) 其他小交互 ==== */
+function showNoteUI(){ ui.noteBox.classList.remove("hidden"); ui.pdfBox.classList.add("hidden"); }
 </script>
 </body>
 </html>
