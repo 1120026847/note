@@ -2,439 +2,486 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>极简笔记（CloudBase 登录 + COS 存储）</title>
-  <!-- CloudBase JS SDK v2 -->
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>极简笔记 · 云端版</title>
+
+  <!-- CloudBase JS SDK（全量） -->
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/2.21.6/cloudbase.full.js"></script>
   <!-- COS JS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/cos-js-sdk-v5/dist/cos-js-sdk-v5.min.js"></script>
+
   <style>
-    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto;max-width:860px;margin:24px auto;padding:0 12px}
-    h1{font-size:22px;margin:0 0 12px}
-    .card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:12px 0}
+    :root{
+      --bg:#f8fafc; --card:#ffffff; --border:#e5e7eb; --muted:#6b7280; --text:#0f172a; --brand:#0f172a;
+      --danger:#b91c1c; --radius:14px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,Arial}
+    .app{max-width:1200px;margin:0 auto;height:100%;display:grid;grid-template-rows:auto 1fr}
+    header{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card);
+      position:sticky;top:0;z-index:5;
+    }
+    header h1{font-size:18px;margin:0;display:flex;gap:10px;align-items:center}
+    header .hint{color:var(--muted);font-size:12px}
+
+    .main{display:grid;grid-template-columns:280px 1fr;gap:16px;padding:16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius)}
+    .sidebar{padding:12px;display:flex;flex-direction:column;gap:12px;height:calc(100vh - 80px)}
+    .sidebar .user{display:flex;align-items:center;justify-content:space-between;border:1px dashed var(--border);border-radius:12px;padding:10px}
+    .btn{border:1px solid var(--brand);background:var(--brand);color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+    .btn.secondary{background:#fff;color:var(--text);border-color:var(--border)}
+    .btn.ghost{background:transparent;border-color:var(--border)}
+    .btn.danger{background:var(--danger);border-color:var(--danger)}
     .row{display:flex;gap:8px;flex-wrap:wrap}
-    input,textarea,button{font:inherit}
-    input,textarea{border:1px solid #d1d5db;border-radius:8px;padding:10px}
-    input{width:240px}
-    textarea{width:100%;min-height:120px}
-    button{border:1px solid #111827;background:#111827;color:#fff;border-radius:10px;padding:10px 14px;cursor:pointer}
-    button.secondary{background:#fff;color:#111827;border-color:#d1d5db}
-    .muted{color:#6b7280;font-size:12px}
-    .list{list-style:none;padding:0;margin:0}
-    .list li{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-    .hidden{display:none}
-    .danger{background:#b91c1c;border-color:#b91c1c}
-    .success{background:#065f46;border-color:#065f46}
+    input,textarea{font:inherit;border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff}
+    input[type="search"]{width:100%}
+    .muted{color:var(--muted);font-size:12px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace}
+    .hidden{display:none !important}
+
+    .list{list-style:none;margin:0;padding:0;overflow:auto}
+    .list li{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid #f1f5f9;padding:10px 6px}
+    .list li:first-child{border-top:0}
+    .list .meta{display:flex;flex-direction:column}
+    .list .meta .name{font-size:13px}
+    .list .meta .time{font-size:12px;color:var(--muted)}
+    .list .ops{display:flex;gap:6px}
+
+    .editor{padding:14px;display:flex;flex-direction:column;gap:10px;min-height:560px}
+    .editor .toolbar{display:flex;align-items:center;justify-content:space-between}
+    .editor .toolbar .title{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .editor textarea{width:100%;min-height:380px;resize:vertical}
+    .placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:8px;height:420px}
   </style>
 </head>
 <body>
-  <h1>📝 极简笔记（CloudBase 登录 + COS 存储）</h1>
-
-  <!-- 认证 -->
-  <div class="card" id="authCard">
+<div class="app">
+  <header>
+    <h1>📝 极简笔记</h1>
     <div class="row">
-      <input id="email" type="email" placeholder="邮箱" />
-      <input id="password" type="password" placeholder="密码（8-32位）" />
-      <input id="emailCode" placeholder="邮箱验证码（注册必填）" />
+      <button id="btnToggleEdit" class="btn hidden">编辑</button>
+      <button id="btnLogout" class="btn secondary hidden">退出登录</button>
     </div>
-    <div class="row" style="margin-top:8px">
-      <button id="btnSendCode">发送验证码（注册用）</button>
-      <button id="btnSignUp">注册</button>
-      <button id="btnSignIn" class="secondary">登录</button>
-      <button id="btnLogout" class="secondary hidden">退出登录</button>
-    </div>
-    <p class="muted">注册：先发送验证码 → 邮箱取码 → 填入验证码 → 点注册。注册成功会自动登录。</p>
-    <p class="mono" id="authState"></p>
+  </header>
+
+  <div class="main">
+    <!-- 左侧：账户 / 新建 / 搜索 / 列表 -->
+    <aside class="sidebar card">
+      <div class="user">
+        <div>
+          <div class="mono" id="accountEmail">未登录</div>
+          <div class="muted" id="accountUid"></div>
+        </div>
+        <div class="row">
+          <button id="btnOpenAuth" class="btn ghost">登录/注册</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:10px">
+        <div class="row">
+          <button id="btnNew" class="btn">新建文章</button>
+          <button id="btnRefresh" class="btn secondary">刷新</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input id="searchInput" type="search" placeholder="搜索文件名…" />
+          <button id="btnSearch" class="btn secondary">搜索</button>
+          <button id="btnClearSearch" class="btn secondary">清空</button>
+        </div>
+      </div>
+
+      <div style="font-weight:600;padding:0 4px">数据管理</div>
+      <ul class="list card" id="noteList" style="padding:6px"></ul>
+      <div class="muted mono" id="listState" style="padding:0 6px"></div>
+    </aside>
+
+    <!-- 右侧：编辑器 -->
+    <section class="editor card" id="editorCard">
+      <div class="toolbar">
+        <div class="title">
+          <input id="noteTitle" placeholder="请输入标题…" style="min-width:220px;width:320px" />
+          <span class="muted" id="fileHint"></span>
+        </div>
+        <div class="muted" id="saveState"></div>
+      </div>
+      <textarea id="noteContent" placeholder="在这里输入内容…"></textarea>
+
+      <div id="emptyHint" class="placeholder">
+        <div style="font-size:40px">✍️</div>
+        <div>请选择左侧文章，或点击「新建文章」</div>
+      </div>
+    </section>
   </div>
+</div>
 
-  <!-- 新建 / 编辑 -->
-  <div class="card hidden" id="noteCard">
-    <h3 style="margin-top:0">
-      <span id="editorTitle">新建 / 保存笔记</span>
-      <span class="muted" id="editingHint" style="margin-left:8px"></span>
-    </h3>
-
-    <div class="row" style="margin-bottom:8px">
-      <input id="noteTitle" placeholder="标题（作为文件名）" />
-      <button id="btnSave">保存到 COS</button>
-      <button id="btnCancelEdit" class="secondary hidden">取消编辑</button>
-    </div>
-
-    <textarea id="noteContent" placeholder="在此输入笔记内容..."></textarea>
-    <p class="muted">对象键前缀为 <span class="mono">/&lt;uid&gt;/</span>（由 STS policy 限定）。</p>
-    <p class="mono" id="saveState"></p>
+<!-- 登录/注册（轻量弹层） -->
+<div id="authModal" class="card hidden" style="position:fixed;inset:auto 16px 16px auto;max-width:680px;padding:14px;box-shadow:0 10px 30px rgb(0 0 0 / .1)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <strong>登录 / 注册</strong>
+    <button id="btnCloseAuth" class="btn secondary">关闭</button>
   </div>
-
-  <!-- 列表 + 搜索 -->
-  <div class="card hidden" id="listCard">
-    <h3 style="margin-top:0">我的笔记</h3>
-
-    <div class="row" style="margin:6px 0 10px">
-      <input id="searchInput" placeholder="输入关键字过滤（文件名包含）" style="flex:1;min-width:260px" />
-      <button id="btnSearch" class="secondary">搜索</button>
-      <button id="btnClearSearch" class="secondary">清空</button>
-      <button id="btnRefresh" class="secondary">刷新列表</button>
-    </div>
-
-    <ul class="list" id="noteList"></ul>
-    <p class="mono" id="listState"></p>
+  <div class="row">
+    <input id="email" type="email" placeholder="邮箱" />
+    <input id="password" type="password" placeholder="密码（8-32位）" />
+    <input id="emailCode" placeholder="邮箱验证码（注册必填）" />
   </div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnSendCode" class="btn secondary">发送验证码（注册）</button>
+    <button id="btnSignUp" class="btn">注册</button>
+    <button id="btnSignIn" class="btn secondary">登录</button>
+  </div>
+  <div class="muted" style="margin-top:6px">流程：发送验证码 → 邮箱取码 → 回填验证码 → 点击注册（成功将自动登录）。</div>
+  <div class="mono" id="authState" style="margin-top:6px"></div>
+</div>
 
 <script>
-/** ===== 0) 基本配置 ===== */
+/* ========= 0) 环境配置 ========= */
 const CLOUDBASE_ENV = "molijun-0gtahyghc6271173";
 const STS_URL       = "https://molijun-0gtahyghc6271173-1317231591.ap-shanghai.app.tcloudbase.com/api/sts";
 
-/** ===== 1) CloudBase 初始化 & 认证 ===== */
-const app = cloudbase.init({ env: CLOUDBASE_ENV });
-const auth = app.auth();
+/* ========= 1) SDK 初始化 / 认证 ========= */
+// CloudBase：初始化与认证
+const app  = cloudbase.init({ env: CLOUDBASE_ENV });
+const auth = app.auth(); // signUp/signIn/signOut/verify 等
 
+// DOM 快捷
 const $ = id => document.getElementById(id);
 const ui = {
-  // auth
-  btnSendCode: $("btnSendCode"),
-  btnSignUp: $("btnSignUp"),
-  btnSignIn: $("btnSignIn"),
-  btnLogout: $("btnLogout"),
-  email: $("email"),
-  password: $("password"),
-  emailCode: $("emailCode"),
-  authState: $("authState"),
-  // editor
-  noteCard: $("noteCard"),
-  editorTitle: $("editorTitle"),
-  editingHint: $("editingHint"),
-  noteTitle: $("noteTitle"),
-  noteContent: $("noteContent"),
-  btnSave: $("btnSave"),
-  btnCancelEdit: $("btnCancelEdit"),
-  saveState: $("saveState"),
-  // list
-  listCard: $("listCard"),
-  noteList: $("noteList"),
-  btnRefresh: $("btnRefresh"),
-  listState: $("listState"),
-  searchInput: $("searchInput"),
-  btnSearch: $("btnSearch"),
-  btnClearSearch: $("btnClearSearch"),
+  // 顶部与右栏
+  btnToggleEdit:$("btnToggleEdit"),
+  btnLogout:$("btnLogout"),
+  accountEmail:$("accountEmail"),
+  accountUid:$("accountUid"),
+  editorCard:$("editorCard"),
+  noteTitle:$("noteTitle"),
+  noteContent:$("noteContent"),
+  fileHint:$("fileHint"),
+  saveState:$("saveState"),
+  emptyHint:$("emptyHint"),
+  // 左栏
+  btnOpenAuth:$("btnOpenAuth"),
+  btnCloseAuth:$("btnCloseAuth"),
+  btnNew:$("btnNew"),
+  btnRefresh:$("btnRefresh"),
+  searchInput:$("searchInput"),
+  btnSearch:$("btnSearch"),
+  btnClearSearch:$("btnClearSearch"),
+  noteList:$("noteList"),
+  listState:$("listState"),
+  // 弹层（登录/注册）
+  authModal:$("authModal"),
+  email:$("email"),
+  password:$("password"),
+  emailCode:$("emailCode"),
+  btnSendCode:$("btnSendCode"),
+  btnSignUp:$("btnSignUp"),
+  btnSignIn:$("btnSignIn"),
+  authState:$("authState"),
 };
 
-function setLoggedInUI(uid, email) {
-  ui.btnLogout.classList.remove("hidden");
-  ui.noteCard.classList.remove("hidden");
-  ui.listCard.classList.remove("hidden");
-  ui.authState.textContent = `已登录：${email || "邮箱未知"}，UID=${uid}`;
-  refreshList().catch(console.error);
-}
-function setLoggedOutUI() {
-  ui.btnLogout.classList.add("hidden");
-  ui.noteCard.classList.add("hidden");
-  ui.listCard.classList.add("hidden");
-  ui.authState.textContent = "未登录";
-  clearEditor();
+/* ========= 2) UI 状态 ========= */
+let currentUID = null;
+let currentEmail = null;
+let latestObjects = [];   // 最近列表缓存（供本地搜索）
+let editing = false;      // 是否处于编辑态
+let openedKey = null;     // 当前打开的对象 key（只读态）
+let openedName = null;
+
+function setAuthUI(uid, email){
+  currentUID = uid; currentEmail = email;
+  ui.accountEmail.textContent = email || "（未取到邮箱）";
+  ui.accountUid.textContent = uid ? ("UID: " + uid) : "";
+  ui.btnLogout.classList.toggle("hidden", !uid);
+  ui.btnOpenAuth.classList.toggle("hidden", !!uid);
+  ui.btnToggleEdit.classList.add("hidden");
+  if(uid){ refreshList().catch(console.error); }
 }
 
-// 恢复登录态
-(async () => {
-  try {
-    const state = await auth.getLoginState();
-    if (state && state.user) setLoggedInUI(state.user.uid, state.user.email);
-    else setLoggedOutUI();
-  } catch (e) { console.warn("getLoginState error", e); }
+function enterReadMode(name, key, content){
+  openedKey = key; openedName = name;
+  editing = false;
+  ui.noteTitle.value = name.replace(/\.txt$/i,"");
+  ui.noteContent.value = content || "";
+  ui.noteContent.readOnly = true;
+  ui.fileHint.textContent = key ? ("当前文件：" + name) : "";
+  ui.btnToggleEdit.textContent = "编辑";
+  ui.btnToggleEdit.classList.toggle("hidden", !key);
+  ui.emptyHint.classList.add("hidden");
+  ui.saveState.textContent = "";
+}
+
+function enterEditMode(newDoc=false){
+  editing = true;
+  ui.noteContent.readOnly = false;
+  ui.btnToggleEdit.textContent = "保存";
+  ui.btnToggleEdit.classList.remove("hidden");
+  if(newDoc){
+    openedKey = null; openedName = null;
+    ui.fileHint.textContent = "（新建文档，保存后自动生成文件名）";
+    ui.emptyHint.classList.add("hidden");
+  }
+}
+
+function clearEditor(){
+  openedKey = null; openedName = null;
+  ui.noteTitle.value = "";
+  ui.noteContent.value = "";
+  ui.fileHint.textContent = "";
+  ui.btnToggleEdit.classList.add("hidden");
+  ui.emptyHint.classList.remove("hidden");
+  ui.saveState.textContent = "";
+}
+
+/* ========= 3) 登录与注册 ========= */
+// 打开/关闭弹层
+ui.btnOpenAuth.onclick = ()=> ui.authModal.classList.remove("hidden");
+ui.btnCloseAuth.onclick = ()=> ui.authModal.classList.add("hidden");
+
+// 恢复登录
+(async ()=>{
+  try{
+    const st = await auth.getLoginState();
+    if(st && st.user){ setAuthUI(st.user.uid, st.user.email); }
+    else setAuthUI(null, null);
+  }catch(e){ console.warn("getLoginState error", e); setAuthUI(null, null); }
 })();
 
 // 发送邮箱验证码
-ui.btnSendCode.onclick = async () => {
+ui.btnSendCode.onclick = async ()=>{
   const email = ui.email.value.trim();
-  if (!email) return alert("请输入邮箱");
-  ui.authState.textContent = "正在发送验证码...";
-  try {
-    const v = await auth.getVerification({ email });
+  if(!email) return alert("请输入邮箱");
+  ui.authState.textContent = "正在发送验证码…";
+  try{
+    const v = await auth.getVerification({ email }); // 发送邮箱验证码
     ui.email.dataset.verification_id = v.verification_id;
-    ui.authState.textContent = "验证码已发送，请在 10 分钟内完成注册。";
-  } catch (e) {
-    ui.authState.textContent = "发送验证码失败：" + (e?.message || JSON.stringify(e));
-  }
+    ui.authState.textContent = "验证码已发送（10分钟有效）";
+  }catch(e){ ui.authState.textContent = "发送失败：" + (e?.message || JSON.stringify(e)); }
 };
 
-// 注册
-ui.btnSignUp.onclick = async () => {
+// 注册并自动登录
+ui.btnSignUp.onclick = async ()=>{
   const email = ui.email.value.trim();
   const password = ui.password.value.trim();
   const code = ui.emailCode.value.trim();
   const verification_id = ui.email.dataset.verification_id;
-  if (!email || !password || !code || !verification_id) {
-    return alert("请先发送验证码，并填写 邮箱/密码/验证码");
-  }
-  ui.authState.textContent = "正在注册...";
-  try {
+  if(!email||!password||!code||!verification_id) return alert("请先获取验证码，并填写邮箱/密码/验证码");
+  ui.authState.textContent = "正在注册…";
+  try{
     const verified = await auth.verify({ verification_id, verification_code: code });
     const loginState = await auth.signUp({
-      email,
-      verification_code: code,
-      verification_token: verified.verification_token,
-      password,
+      email, verification_code: code, verification_token: verified.verification_token, password
     });
-    setLoggedInUI(loginState.user.uid, loginState.user.email);
+    setAuthUI(loginState.user.uid, loginState.user.email);
     ui.authState.textContent = "注册并登录成功";
-  } catch (e) {
-    ui.authState.textContent = "注册失败：" + (e?.message || JSON.stringify(e));
-  }
+    ui.authModal.classList.add("hidden");
+  }catch(e){ ui.authState.textContent = "注册失败：" + (e?.message || JSON.stringify(e)); }
 };
 
 // 登录
-ui.btnSignIn.onclick = async () => {
+ui.btnSignIn.onclick = async ()=>{
   const email = ui.email.value.trim();
   const password = ui.password.value.trim();
-  if (!email || !password) return alert("请输入邮箱与密码");
-  ui.authState.textContent = "正在登录...";
-  try {
-    const state = await auth.signIn({ username: email, password });
-    setLoggedInUI(state.user.uid, state.user.email);
+  if(!email||!password) return alert("请输入邮箱与密码");
+  ui.authState.textContent = "正在登录…";
+  try{
+    const st = await auth.signIn({ username: email, password });
+    setAuthUI(st.user.uid, st.user.email);
     ui.authState.textContent = "登录成功";
-  } catch (e) {
-    ui.authState.textContent = "登录失败：" + (e?.message || JSON.stringify(e));
-  }
+    ui.authModal.classList.add("hidden");
+  }catch(e){ ui.authState.textContent = "登录失败：" + (e?.message || JSON.stringify(e)); }
 };
 
 // 退出
-ui.btnLogout.onclick = async () => {
-  try { await auth.signOut(); setLoggedOutUI(); }
-  catch (e) { alert("退出失败：" + (e?.message || e)); }
+ui.btnLogout.onclick = async ()=>{
+  try{ await auth.signOut(); setAuthUI(null,null); clearEditor(); }
+  catch(e){ alert("退出失败：" + (e?.message || e)); }
 };
 
-/** ===== 2) STS & COS ===== */
+/* ========= 4) STS & COS ========= */
 let stsCache = null;
 let cos = null;
 
-async function currentUser() {
+async function ensureLogin(){
   const s = await auth.getLoginState();
-  if (!s || !s.user) throw new Error("尚未登录");
-  return { uid: s.user.uid, email: s.user.email };
+  if(!s || !s.user) throw new Error("尚未登录");
+  return { uid:s.user.uid, email:s.user.email };
 }
-async function fetchSTS(uid) {
-  const url = `${STS_URL}?uid=${encodeURIComponent(uid)}`;
-  const res = await fetch(url, { headers: { "x-user-uid": uid } });
-  if (!res.ok) {
-    const t = await res.text().catch(()=>"");
-    throw new Error(`STS 获取失败（${res.status}）：${t}`);
-  }
+async function fetchSTS(uid){
+  const res = await fetch(`${STS_URL}?uid=${encodeURIComponent(uid)}`, { headers:{ "x-user-uid": uid } });
+  if(!res.ok){ throw new Error("STS 获取失败：" + res.status); }
   const data = await res.json();
-  if (!data?.credentials?.tmpSecretId || !data?.credentials?.tmpSecretKey || !data?.credentials?.sessionToken) {
+  if(!data?.credentials?.tmpSecretId || !data?.credentials?.tmpSecretKey || !data?.credentials?.sessionToken)
     throw new Error("STS 响应缺少 credentials");
-  }
-  if (!data?.bucket || !data?.region) {
-    throw new Error("STS 响应缺少 bucket/region");
-  }
+  if(!data?.bucket || !data?.region) throw new Error("STS 响应缺少 bucket/region");
   return data;
 }
-async function ensureCOS() {
-  const { uid } = await currentUser();
-
-  const nowSec = Math.floor(Date.now()/1000);
-  const needNew = !stsCache || !stsCache.expiredTime || (nowSec + 60) >= Number(stsCache.expiredTime);
-  if (needNew) {
+async function ensureCOS(){
+  const { uid } = await ensureLogin();
+  const now = Math.floor(Date.now()/1000);
+  const needNew = !stsCache || !stsCache.expiredTime || (now + 60) >= Number(stsCache.expiredTime);
+  if(needNew){
     stsCache = await fetchSTS(uid);
     cos = new COS({
-      getAuthorization: (_, callback) => {
+      getAuthorization: (_, cb) => {
         const c = stsCache.credentials;
-        callback({
-          TmpSecretId:  c.tmpSecretId,
-          TmpSecretKey: c.tmpSecretKey,
-          SecurityToken:c.sessionToken,
-          StartTime:    Number(stsCache.startTime),
-          ExpiredTime:  Number(stsCache.expiredTime),
-        });
+        cb({ TmpSecretId:c.tmpSecretId, TmpSecretKey:c.tmpSecretKey, SecurityToken:c.sessionToken,
+             StartTime:Number(stsCache.startTime), ExpiredTime:Number(stsCache.expiredTime) });
       }
     });
   }
   return { cos, bucket: stsCache.bucket, region: stsCache.region, uid };
 }
 
-/** ===== 3) 业务：新增 / 编辑 / 搜索 / 列表 / 下载 / 删除 ===== */
+/* ========= 5) 列表 / 打开 / 下载 / 删除 ========= */
 function pad2(n){return n<10?("0"+n):""+n}
-function ts(){ const d=new Date(); return d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"_"+pad2(d.getHours())+pad2(d.getMinutes())+pad2(d.getSeconds()); }
-
-// —— 编辑模式状态 —— //
-let editingKey = null;  // 非空时表示正在编辑某个 Key
-
-function enterEditMode(key, fileName){
-  editingKey = key;
-  ui.editorTitle.textContent = "编辑笔记";
-  ui.editingHint.textContent = fileName ? `（当前文件：${fileName}）` : "";
-  ui.btnCancelEdit.classList.remove("hidden");
-  ui.saveState.textContent = "";
-}
-function exitEditMode(){
-  editingKey = null;
-  ui.editorTitle.textContent = "新建 / 保存笔记";
-  ui.editingHint.textContent = "";
-  ui.btnCancelEdit.classList.add("hidden");
-}
-function clearEditor(){
-  ui.noteTitle.value = "";
-  ui.noteContent.value = "";
-  exitEditMode();
+function ts(){
+  const d=new Date();return d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"_"+pad2(d.getHours())+pad2(d.getMinutes())+pad2(d.getSeconds());
 }
 
-// 保存（新建或覆盖）
-ui.btnSave.onclick = async () => {
-  ui.saveState.textContent = "正在上传...";
-  try {
-    const { cos, bucket, region, uid } = await ensureCOS();
-
-    let key;
-    // 编辑模式：直接覆盖原 Key；新建模式：按时间戳+标题生成新 Key
-    if (editingKey) {
-      key = editingKey;
-    } else {
-      const title = (ui.noteTitle.value || "未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,60);
-      key = `${uid}/${ts()}_${title}.txt`;
-    }
-
-    const blob = new Blob([ui.noteContent.value || ""], { type: "text/plain;charset=utf-8" });
-    await new Promise((resolve, reject) => {
-      cos.putObject({ Bucket: bucket, Region: region, Key: key, Body: blob },
-        (err, data) => err ? reject(err) : resolve(data));
-    });
-
-    ui.saveState.textContent = editingKey
-      ? `已保存修改：cos://${bucket}/${key}`
-      : `已保存：cos://${bucket}/${key}`;
-
-    // 重置编辑器并刷新
-    clearEditor();
-    refreshList();
-  } catch (e) {
-    ui.saveState.textContent = "保存失败：" + (e?.message || JSON.stringify(e));
-  }
-};
-
-// 取消编辑
-ui.btnCancelEdit.onclick = () => clearEditor();
-
-// —— 列表缓存用于本地搜索 —— //
-let latestObjects = [];  // [{Key, LastModified}, ...]
-
-async function refreshList() {
-  ui.listState.textContent = "加载中...";
+async function refreshList(){
+  ui.listState.textContent = "加载中…";
   ui.noteList.innerHTML = "";
-  try {
+  try{
     const { cos, bucket, region, uid } = await ensureCOS();
     const prefix = `${uid}/`;
-    const list = await new Promise((resolve, reject) => {
-      cos.getBucket({ Bucket: bucket, Region: region, Prefix: prefix, MaxKeys: 1000 },
-        (err, data) => err ? reject(err) : resolve(data));
+    const list = await new Promise((resolve,reject)=>{
+      cos.getBucket({ Bucket:bucket, Region:region, Prefix:prefix, MaxKeys:1000 },
+        (e,d)=> e?reject(e):resolve(d));
     });
-    const objs = (list?.Contents || []).filter(o => o.Key.endsWith(".txt"))
-      .sort((a,b)=> new Date(b.LastModified) - new Date(a.LastModified));
-
-    latestObjects = objs;               // 更新缓存
+    const objs = (list?.Contents||[]).filter(o=>o.Key.endsWith(".txt"))
+                  .sort((a,b)=> new Date(b.LastModified)-new Date(a.LastModified));
+    latestObjects = objs;
     renderList(objs, bucket, region, cos);
     ui.listState.textContent = `共 ${objs.length} 条`;
-  } catch (e) {
+  }catch(e){
     ui.listState.textContent = "加载失败：" + (e?.message || JSON.stringify(e));
   }
 }
-ui.btnRefresh.onclick = refreshList;
 
-// 只渲染（供列表与搜索共用）
 function renderList(objs, bucket, region, cos){
   ui.noteList.innerHTML = "";
-  if (objs.length === 0) {
-    ui.noteList.innerHTML = "<li class='muted'>暂无笔记</li>";
+  if(objs.length===0){
+    ui.noteList.innerHTML = "<li class='muted' style='padding:12px'>暂无笔记</li>";
     return;
   }
-  for (const obj of objs) {
-    const li = document.createElement("li");
+  for(const obj of objs){
     const name = obj.Key.split("/").pop();
+    const li = document.createElement("li");
 
-    const left = document.createElement("div");
-    left.innerHTML = `<span class="mono">${name}</span><br/><span class="muted">${new Date(obj.LastModified).toLocaleString()}</span>`;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.innerHTML = `<span class="name mono">${name}</span>
+                      <span class="time">${new Date(obj.LastModified).toLocaleString()}</span>`;
 
-    const btns = document.createElement("div");
+    const ops = document.createElement("div"); ops.className="ops";
 
-    // 下载
+    const btnOpen = document.createElement("button");
+    btnOpen.className = "btn secondary"; btnOpen.textContent = "打开";
+    btnOpen.onclick = () => openObject(obj, bucket, region, cos);
+
     const btnDown = document.createElement("button");
-    btnDown.className = "secondary";
-    btnDown.textContent = "下载";
-    btnDown.onclick = async () => {
-      const url = await new Promise((resolve, reject) => {
-        cos.getObjectUrl({ Bucket: bucket, Region: region, Key: obj.Key, Sign: true },
-          (e, r) => e ? reject(e) : resolve(r.Url));
+    btnDown.className = "btn secondary"; btnDown.textContent = "下载";
+    btnDown.onclick = async ()=>{
+      const url = await new Promise((resolve,reject)=>{
+        cos.getObjectUrl({ Bucket:bucket, Region:region, Key:obj.Key, Sign:true },
+          (e,r)=> e?reject(e):resolve(r.Url));
       });
       window.open(url, "_blank");
     };
 
-    // 编辑
-    const btnEdit = document.createElement("button");
-    btnEdit.className = "secondary";
-    btnEdit.textContent = "编辑";
-    btnEdit.onclick = async () => {
+    const btnDel = document.createElement("button");
+    btnDel.className = "btn danger"; btnDel.textContent="删除";
+    btnDel.onclick = async ()=>{
+      if(!confirm(`确认删除 ${name} 吗？`)) return;
       try{
-        const data = await new Promise((resolve,reject)=>{
-          cos.getObject({ Bucket: bucket, Region: region, Key: obj.Key },
+        await new Promise((resolve,reject)=>{
+          cos.deleteObject({ Bucket:bucket, Region:region, Key:obj.Key },
             (e,r)=> e?reject(e):resolve(r));
         });
-        // cos.getObject 的 Body 可能是 Blob/ArrayBuffer/字符串，这里统一转为字符串
-        const body = data && (data.Body || data.BodyBuffer || data.Content) || "";
-        const text = typeof body === "string" ? body
-                    : body instanceof Blob ? await body.text()
-                    : new TextDecoder("utf-8").decode(body);
-
-        // 进入编辑模式，填充内容
-        ui.noteTitle.value = name.replace(/\.txt$/i,"");
-        ui.noteContent.value = text;
-        enterEditMode(obj.Key, name);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }catch(e){
-        alert("读取失败：" + (e?.message || JSON.stringify(e)));
-      }
-    };
-
-    // 删除
-    const btnDel = document.createElement("button");
-    btnDel.className = "secondary danger";
-    btnDel.textContent = "删除";
-    btnDel.onclick = async () => {
-      if (!confirm(`确认删除 ${name} 吗？`)) return;
-      try {
-        await new Promise((resolve, reject) => {
-          cos.deleteObject({ Bucket: bucket, Region: region, Key: obj.Key },
-            (e, r) => e ? reject(e) : resolve(r));
-        });
-        if (editingKey === obj.Key) clearEditor(); // 若删的是正在编辑的文件，退出编辑
+        if(openedKey===obj.Key) clearEditor();
         refreshList();
-      } catch (e) {
-        alert("删除失败：" + (e?.message || JSON.stringify(e)));
-      }
+      }catch(e){ alert("删除失败：" + (e?.message || JSON.stringify(e))); }
     };
 
-    btns.appendChild(btnDown);
-    btns.appendChild(btnEdit);
-    btns.appendChild(btnDel);
-    li.appendChild(left);
-    li.appendChild(btns);
+    ops.appendChild(btnOpen); ops.appendChild(btnDown); ops.appendChild(btnDel);
+    li.appendChild(meta); li.appendChild(ops);
     ui.noteList.appendChild(li);
   }
 }
 
-// 搜索（前端过滤）
-ui.btnSearch.onclick = () => {
+async function openObject(obj, bucket, region, cos){
+  try{
+    const data = await new Promise((resolve,reject)=>{
+      cos.getObject({ Bucket:bucket, Region:region, Key:obj.Key }, (e,r)=> e?reject(e):resolve(r));
+    });
+    const body = data && (data.Body || data.BodyBuffer || data.Content) || "";
+    const text = typeof body === "string" ? body
+               : body instanceof Blob ? await body.text()
+               : new TextDecoder("utf-8").decode(body);
+    const name = obj.Key.split("/").pop();
+    enterReadMode(name, obj.Key, text);
+    // 进入阅读态后允许“编辑”按钮
+  }catch(e){ alert("读取失败：" + (e?.message || JSON.stringify(e))); }
+}
+
+/* ========= 6) 搜索 / 清空 ========= */
+ui.btnSearch.onclick = ()=>{
   const kw = ui.searchInput.value.trim().toLowerCase();
-  const filtered = !kw ? latestObjects
-    : latestObjects.filter(o => o.Key.split("/").pop().toLowerCase().includes(kw));
-  // 用最近一次 ensureCOS 的信息渲染（不需要重新取 sts）
-  if (!stsCache) return; // 极端情况：尚未加载过
+  const filtered = !kw ? latestObjects :
+      latestObjects.filter(o => o.Key.split("/").pop().toLowerCase().includes(kw));
+  if(!stsCache) return;
   renderList(filtered, stsCache.bucket, stsCache.region, cos);
   ui.listState.textContent = `过滤后 ${filtered.length} 条`;
 };
-ui.btnClearSearch.onclick = () => {
+ui.btnClearSearch.onclick = ()=>{
   ui.searchInput.value = "";
-  if (stsCache) renderList(latestObjects, stsCache.bucket, stsCache.region, cos);
+  if(stsCache) renderList(latestObjects, stsCache.bucket, stsCache.region, cos);
   ui.listState.textContent = `共 ${latestObjects.length} 条`;
 };
+
+/* ========= 7) 新建 / 编辑-保存 ========= */
+// 新建
+ui.btnNew.onclick = ()=>{
+  ui.noteTitle.value = "";
+  ui.noteContent.value = "";
+  enterEditMode(true);
+};
+
+// 顶部右侧按钮：编辑 <-> 保存
+ui.btnToggleEdit.onclick = async ()=>{
+  if(!editing){
+    // 从阅读 -> 编辑
+    enterEditMode(false);
+    return;
+  }
+  // 编辑 -> 保存
+  ui.saveState.textContent = "正在保存到 COS…";
+  try{
+    const { cos, bucket, region, uid } = await ensureCOS();
+    let key = openedKey;
+    if(!key){
+      const safeTitle = (ui.noteTitle.value || "未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,60);
+      key = `${uid}/${ts()}_${safeTitle}.txt`;
+    }
+    const blob = new Blob([ui.noteContent.value || ""], { type:"text/plain;charset=utf-8" });
+    await new Promise((resolve,reject)=>{
+      cos.putObject({ Bucket:bucket, Region:region, Key:key, Body:blob },
+        (e,d)=> e?reject(e):resolve(d));
+    });
+    // 保存后回到只读
+    const name = key.split("/").pop();
+    enterReadMode(name, key, ui.noteContent.value || "");
+    ui.saveState.textContent = `已保存：cos://${bucket}/${key}`;
+    refreshList();
+  }catch(e){
+    ui.saveState.textContent = "保存失败：" + (e?.message || JSON.stringify(e));
+  }
+};
+
+// 刷新
+ui.btnRefresh.onclick = () => refreshList();
 </script>
 </body>
 </html>
