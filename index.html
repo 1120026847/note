@@ -14,6 +14,7 @@
     :root{
       --bg:#f8fafc; --card:#ffffff; --border:#e5e7eb; --muted:#6b7280; --text:#0f172a; --brand:#0f172a;
       --danger:#b91c1c; --radius:14px;
+      --drop:#eef2ff;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -50,11 +51,20 @@
     .list .meta .time{font-size:12px;color:var(--muted)}
     .list .ops{display:flex;gap:6px}
 
-    .editor{padding:14px;display:flex;flex-direction:column;gap:10px;min-height:560px}
+    .editor{padding:14px;display:flex;flex-direction:column;gap:10px;min-height:560px;position:relative}
     .editor .toolbar{display:flex;align-items:center;justify-content:space-between}
     .editor .toolbar .title{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .editor textarea{width:100%;min-height:380px;resize:vertical}
     .placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:8px;height:420px}
+
+    /* 拖拽高亮 */
+    .drop-mask{
+      position:absolute;inset:0;border-radius:var(--radius);
+      border:2px dashed #818cf8;background:var(--drop);
+      display:none;align-items:center;justify-content:center;
+      color:#4338ca;font-weight:600;font-size:16px
+    }
+    .editor.dragover .drop-mask{display:flex}
   </style>
 </head>
 <body>
@@ -97,7 +107,7 @@
       <div class="muted mono" id="listState" style="padding:0 6px"></div>
     </aside>
 
-    <!-- 右侧：编辑器 -->
+    <!-- 右侧：编辑器（新增拖拽提示层） -->
     <section class="editor card" id="editorCard">
       <div class="toolbar">
         <div class="title">
@@ -106,12 +116,15 @@
         </div>
         <div class="muted" id="saveState"></div>
       </div>
-      <textarea id="noteContent" placeholder="在这里输入内容…"></textarea>
+      <textarea id="noteContent" placeholder="在这里输入内容…（可直接粘贴/拖拽图片到此处）"></textarea>
 
       <div id="emptyHint" class="placeholder">
         <div style="font-size:40px">✍️</div>
         <div>请选择左侧文章，或点击「新建文章」</div>
       </div>
+
+      <!-- 拖拽高亮遮罩 -->
+      <div id="dropMask" class="drop-mask">松开即可上传图片到 COS</div>
     </section>
   </div>
 </div>
@@ -142,7 +155,6 @@ const CLOUDBASE_ENV = "molijun-0gtahyghc6271173";
 const STS_URL       = "https://molijun-0gtahyghc6271173-1317231591.ap-shanghai.app.tcloudbase.com/api/sts";
 
 /* ========= 1) SDK 初始化 / 认证 ========= */
-// CloudBase：初始化与认证
 const app  = cloudbase.init({ env: CLOUDBASE_ENV });
 const auth = app.auth(); // signUp/signIn/signOut/verify 等
 
@@ -160,6 +172,7 @@ const ui = {
   fileHint:$("fileHint"),
   saveState:$("saveState"),
   emptyHint:$("emptyHint"),
+  dropMask:$("dropMask"),
   // 左栏
   btnOpenAuth:$("btnOpenAuth"),
   btnCloseAuth:$("btnCloseAuth"),
@@ -202,7 +215,7 @@ function setAuthUI(uid, email){
 function enterReadMode(name, key, content){
   openedKey = key; openedName = name;
   editing = false;
-  ui.noteTitle.value = name.replace(/\.txt$/i,"");
+  ui.noteTitle.value = name? name.replace(/\.txt$/i,"") : (ui.noteTitle.value||"");
   ui.noteContent.value = content || "";
   ui.noteContent.readOnly = true;
   ui.fileHint.textContent = key ? ("当前文件：" + name) : "";
@@ -235,11 +248,9 @@ function clearEditor(){
 }
 
 /* ========= 3) 登录与注册 ========= */
-// 打开/关闭弹层
 ui.btnOpenAuth.onclick = ()=> ui.authModal.classList.remove("hidden");
 ui.btnCloseAuth.onclick = ()=> ui.authModal.classList.add("hidden");
 
-// 恢复登录
 (async ()=>{
   try{
     const st = await auth.getLoginState();
@@ -248,19 +259,17 @@ ui.btnCloseAuth.onclick = ()=> ui.authModal.classList.add("hidden");
   }catch(e){ console.warn("getLoginState error", e); setAuthUI(null, null); }
 })();
 
-// 发送邮箱验证码
 ui.btnSendCode.onclick = async ()=>{
   const email = ui.email.value.trim();
   if(!email) return alert("请输入邮箱");
   ui.authState.textContent = "正在发送验证码…";
   try{
-    const v = await auth.getVerification({ email }); // 发送邮箱验证码
+    const v = await auth.getVerification({ email });
     ui.email.dataset.verification_id = v.verification_id;
     ui.authState.textContent = "验证码已发送（10分钟有效）";
   }catch(e){ ui.authState.textContent = "发送失败：" + (e?.message || JSON.stringify(e)); }
 };
 
-// 注册并自动登录
 ui.btnSignUp.onclick = async ()=>{
   const email = ui.email.value.trim();
   const password = ui.password.value.trim();
@@ -279,7 +288,6 @@ ui.btnSignUp.onclick = async ()=>{
   }catch(e){ ui.authState.textContent = "注册失败：" + (e?.message || JSON.stringify(e)); }
 };
 
-// 登录
 ui.btnSignIn.onclick = async ()=>{
   const email = ui.email.value.trim();
   const password = ui.password.value.trim();
@@ -293,7 +301,6 @@ ui.btnSignIn.onclick = async ()=>{
   }catch(e){ ui.authState.textContent = "登录失败：" + (e?.message || JSON.stringify(e)); }
 };
 
-// 退出
 ui.btnLogout.onclick = async ()=>{
   try{ await auth.signOut(); setAuthUI(null,null); clearEditor(); }
   catch(e){ alert("退出失败：" + (e?.message || e)); }
@@ -422,7 +429,6 @@ async function openObject(obj, bucket, region, cos){
                : new TextDecoder("utf-8").decode(body);
     const name = obj.Key.split("/").pop();
     enterReadMode(name, obj.Key, text);
-    // 进入阅读态后允许“编辑”按钮
   }catch(e){ alert("读取失败：" + (e?.message || JSON.stringify(e))); }
 }
 
@@ -442,21 +448,14 @@ ui.btnClearSearch.onclick = ()=>{
 };
 
 /* ========= 7) 新建 / 编辑-保存 ========= */
-// 新建
 ui.btnNew.onclick = ()=>{
   ui.noteTitle.value = "";
   ui.noteContent.value = "";
   enterEditMode(true);
 };
 
-// 顶部右侧按钮：编辑 <-> 保存
 ui.btnToggleEdit.onclick = async ()=>{
-  if(!editing){
-    // 从阅读 -> 编辑
-    enterEditMode(false);
-    return;
-  }
-  // 编辑 -> 保存
+  if(!editing){ enterEditMode(false); return; }
   ui.saveState.textContent = "正在保存到 COS…";
   try{
     const { cos, bucket, region, uid } = await ensureCOS();
@@ -470,7 +469,6 @@ ui.btnToggleEdit.onclick = async ()=>{
       cos.putObject({ Bucket:bucket, Region:region, Key:key, Body:blob },
         (e,d)=> e?reject(e):resolve(d));
     });
-    // 保存后回到只读
     const name = key.split("/").pop();
     enterReadMode(name, key, ui.noteContent.value || "");
     ui.saveState.textContent = `已保存：cos://${bucket}/${key}`;
@@ -479,9 +477,94 @@ ui.btnToggleEdit.onclick = async ()=>{
     ui.saveState.textContent = "保存失败：" + (e?.message || JSON.stringify(e));
   }
 };
-
-// 刷新
 ui.btnRefresh.onclick = () => refreshList();
+
+/* ========= 8) 图片上传：粘贴 & 拖拽 ========= */
+/** 关键点：
+ * - paste：读取 clipboardData.items 里的 image/* Blob（需 HTTPS、用户触发）。参考 MDN Clipboard API。:contentReference[oaicite:1]{index=1}
+ * - drag&drop：阻止默认打开文件行为，从 dataTransfer.files 取 File 列表。参考 MDN Drag&Drop。:contentReference[oaicite:2]{index=2}
+ * - 上传：优先使用 SDK 的 uploadFile（自动分块/断点续传），小文件也可 putObject。:contentReference[oaicite:3]{index=3}
+ * - 结果：调用 getObjectUrl(Sign:true) 取带签名临时链接，插入到编辑框光标处为 `![]()`。
+ */
+
+const IMAGE_MAX = 20 * 1024 * 1024; // 20MB 上限，可按需调整
+const ACCEPT = ["image/png","image/jpeg","image/gif","image/webp","image/svg+xml"];
+
+function setDragVisual(on){
+  ui.editorCard.classList.toggle("dragover", !!on);
+}
+
+ui.noteContent.addEventListener("paste", async (e)=>{
+  if(!currentUID) return; // 未登录不处理
+  const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : [];
+  const imgs = items.filter(it => it.kind === "file" && it.type && it.type.startsWith("image/"));
+  if(!imgs.length) return;
+  e.preventDefault();
+  const files = await Promise.all(imgs.map(it => it.getAsFile()));
+  handleFiles(files.filter(Boolean));
+});
+
+["dragenter","dragover"].forEach(ev=>{
+  ui.editorCard.addEventListener(ev, (e)=>{ e.preventDefault(); setDragVisual(true); });
+});
+["dragleave","drop"].forEach(ev=>{
+  ui.editorCard.addEventListener(ev, (e)=>{ e.preventDefault(); if(ev==="drop") onDrop(e); setDragVisual(false); });
+});
+async function onDrop(e){
+  if(!currentUID) return;
+  const files = Array.from(e.dataTransfer?.files || []).filter(f => f && f.type?.startsWith("image/"));
+  if(files.length) await handleFiles(files);
+}
+
+async function handleFiles(files){
+  if(!files || !files.length) return;
+  enterEditMode(openedKey==null); // 确保可编辑
+  for(const f of files){
+    if(!ACCEPT.includes(f.type)) { ui.saveState.textContent = `跳过不支持的类型：${f.type}`; continue; }
+    if(f.size > IMAGE_MAX){ ui.saveState.textContent = `文件过大（>${(IMAGE_MAX/1024/1024)|0}MB）：${f.name}`; continue; }
+    try{
+      const url = await uploadImageToCOS(f);
+      insertAtCursor(ui.noteContent, `\n![](${url})\n`);
+      ui.saveState.textContent = `图片已上传并插入：${f.name}`;
+    }catch(err){
+      ui.saveState.textContent = `上传失败：${err?.message || err}`;
+    }
+  }
+}
+
+/** 上传文件到 COS，返回可访问的临时签名 URL */
+async function uploadImageToCOS(file){
+  const { cos, bucket, region, uid } = await ensureCOS();
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  const safeBase = (ui.noteTitle.value || "未命名").replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,40);
+  const key = `${uid}/assets/${new Date().getFullYear()}/${pad2(new Date().getMonth()+1)}/${ts()}_${safeBase}.${ext||"png"}`;
+
+  // 使用高级接口（自动分片/断点续传/进度回调）
+  await new Promise((resolve,reject)=>{
+    cos.uploadFile({
+      Bucket: bucket, Region: region, Key: key, Body: file, SliceSize: 1024*1024,
+      onProgress: p => { ui.saveState.textContent = `上传中 ${file.name} ${(p.percent*100).toFixed(1)}%`; }
+    }, (err, data) => err ? reject(err) : resolve(data));
+  });
+
+  // 取签名 URL（默认带有效期），用于在笔记中直接显示
+  const signed = await new Promise((resolve,reject)=>{
+    cos.getObjectUrl({ Bucket:bucket, Region:region, Key:key, Sign:true }, (e,r)=> e?reject(e):resolve(r));
+  });
+  return signed.Url; // 返回临时可访问链接
+}
+
+/** 在 textarea 光标处插入文本 */
+function insertAtCursor(el, text){
+  const start = el.selectionStart ?? el.value.length;
+  const end   = el.selectionEnd ?? el.value.length;
+  const before = el.value.slice(0, start);
+  const after  = el.value.slice(end);
+  el.value = before + text + after;
+  const pos = start + text.length;
+  el.selectionStart = el.selectionEnd = pos;
+  el.focus();
+}
 </script>
 </body>
 </html>
